@@ -9,6 +9,7 @@ const PANELS = {
     timeline: () => `api/dashboard/timeline?${timelineQuery()}`,
     machines: () => 'api/dashboard/machines',
     projects: () => `api/dashboard/projects?${rangeQuery()}`,
+    cost: () => `api/dashboard/cost?${rangeQuery()}`,
 }
 
 const TABS = [
@@ -186,6 +187,26 @@ const app = {
         timelineState.date = next
         this.load('timeline')
     },
+    get pj() { return this.panels.projects.data },
+    projectsExpanded: false,
+    get projectRows() {
+        const rows = this.pj?.projects || []
+        return this.projectsExpanded ? rows : rows.slice(0, 6)
+    },
+    statusLabel(status) {
+        return status ? status[0].toUpperCase() + status.slice(1) : '—'
+    },
+    // polyline points for a 280x28 sparkline of daily seconds
+    sparkline(values) {
+        const w = 280, h = 28, n = values.length
+        if (!n) return ''
+        const max = Math.max(...values, 1)
+        return values.map((v, i) => `${n === 1 ? w / 2 : (i / (n - 1)) * w},${(h - 3 - (v / max) * (h - 6)).toFixed(1)}`).join(' ')
+    },
+    get cs() { return this.panels.cost.data },
+    get costRows() { return (this.cs?.cost.by_model || []).filter(m => m.tokens.total > 0).slice(0, 8) },
+    modelLabel(m) { return m.model ? `${m.model} ${m.version}`.trim() : '(no model)' },
+
     get mc() { return this.panels.machines.data },
     osName(os) {
         const o = (os || '').toLowerCase()
