@@ -78,7 +78,7 @@ func (h *DashboardApiHandler) withRange(f rangeFunc) http.HandlerFunc {
 			helpers.RespondJSON(w, r, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		h.respond(w, r)(f(params.User, params.From, params.To, filtersFrom(r)))
+		h.respond(w, r)(f(params.User, h.dashboardSrvc.ClampFrom(params.User, params.From), params.To, filtersFrom(r)))
 	}
 }
 

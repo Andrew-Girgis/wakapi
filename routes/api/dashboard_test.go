@@ -31,6 +31,7 @@ func newDashboardTestHandler() (*DashboardApiHandler, *mocks.HeartbeatServiceMoc
 	aliases.On("GetAliasOrDefault", mock.Anything, mock.Anything, mock.Anything).Return("", nil)
 	labels := new(mocks.ProjectLabelServiceMock)
 	labels.On("GetByUserGrouped", mock.Anything).Return(map[string][]*models.ProjectLabel{}, nil)
+	heartbeats.On("GetFirstByUser", mock.Anything).Return(time.Time{}, nil)
 	srv := services.NewDashboardService(heartbeats, aliases, labels, services.NewPricingServiceWith(nil))
 	return NewDashboardApiHandler(nil, srv), heartbeats
 }

@@ -18,14 +18,39 @@ function upsert(key, canvas, config) {
     charts[key] = new Chart(canvas.getContext('2d'), config)
 }
 
-export function renderActivity(canvas, data, mode, tz) {
+// long ranges are summed into weeks (> 62 days) or months (> 366 days) so bars stay readable
+export function bucketDays(days) {
+    if (days.length <= 62) return { unit: 'day', buckets: days }
+    const unit = days.length > 366 ? 'month' : 'week'
+    const out = []
+    for (const d of days) {
+        const date = new Date(d.date + 'T00:00:00Z')
+        let key
+        if (unit === 'month') key = d.date.slice(0, 7) + '-01'
+        else {
+            const monday = new Date(date)
+            monday.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7))
+            key = monday.toISOString().slice(0, 10)
+        }
+        let b = out[out.length - 1]
+        if (!b || b.date !== key) out.push(b = { date: key, seconds: {}, tokens: {} })
+        for (const [g, v] of Object.entries(d.seconds)) b.seconds[g] = (b.seconds[g] || 0) + v
+        for (const [g, v] of Object.entries(d.tokens)) b.tokens[g] = (b.tokens[g] || 0) + v
+    }
+    // drop leading empty buckets
+    while (out.length > 1 && !Object.keys(out[0].seconds).length && !Object.keys(out[0].tokens).length) out.shift()
+    return { unit, buckets: out }
+}
+
+export function renderActivity(canvas, data, mode) {
     if (!canvas || !data) return
-    const fmtDay = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-    const labels = data.days.map(d => fmtDay.format(new Date(d.date + 'T00:00:00Z')))
-    const groups = data.groups.filter(g => data.days.some(d => (mode === 'tokens' ? d.tokens[g] : d.seconds[g]) > 0))
+    const { unit, buckets } = bucketDays(data.days)
+    const fmt = new Intl.DateTimeFormat('en', unit === 'month' ? { month: 'short', year: '2-digit', timeZone: 'UTC' } : { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    const labels = buckets.map(d => (unit === 'week' ? 'wk ' : '') + fmt.format(new Date(d.date + 'T00:00:00Z')))
+    const groups = data.groups.filter(g => buckets.some(d => (mode === 'tokens' ? d.tokens[g] : d.seconds[g]) > 0))
     const datasets = groups.map(g => ({
         label: g,
-        data: data.days.map(d => mode === 'tokens' ? (d.tokens[g] || 0) / 1e6 : (d.seconds[g] || 0) / 3600),
+        data: buckets.map(d => mode === 'tokens' ? (d.tokens[g] || 0) / 1e6 : (d.seconds[g] || 0) / 3600),
         backgroundColor: GROUP_COLORS[g] || GROUP_COLORS.Other,
         borderWidth: 0,
         borderRadius: 2,

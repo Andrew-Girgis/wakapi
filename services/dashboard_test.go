@@ -26,6 +26,16 @@ func (f *fakeHeartbeatSrvc) GetAllWithin(from, to time.Time, _ *models.User) ([]
 	return out, nil
 }
 
+func (f *fakeHeartbeatSrvc) GetFirstByUser(*models.User) (time.Time, error) {
+	first := time.Time{}
+	for _, h := range f.heartbeats {
+		if first.IsZero() || h.Time.T().Before(first) {
+			first = h.Time.T()
+		}
+	}
+	return first, nil
+}
+
 type fakeAliasSrvc struct{ IAliasService }
 
 func (f *fakeAliasSrvc) GetAliasOrDefault(_ string, t uint8, v string) (string, error) {
@@ -257,4 +267,13 @@ func TestDashboardService_Machines_IgnoresNonAgentTools(t *testing.T) {
 	}
 	m, _ := sut.Machines(dashUser, dashStart.Add(46*time.Minute))
 	assert.Len(t, m.Warnings, 1)
+}
+
+func TestDashboardService_ClampFrom(t *testing.T) {
+	defer config.Set(config.Empty())
+	sut := newDashboardTestService()
+	epoch := time.Unix(0, 0)
+	got := sut.ClampFrom(dashUser, epoch)
+	assert.True(t, got.Equal(dashDay.AddDate(0, 0, -10)), got)      // first heartbeat is the old Codex-cli history, 10 days earlier
+	assert.True(t, sut.ClampFrom(dashUser, dashDay).Equal(dashDay)) // ranges after the first heartbeat are unchanged
 }

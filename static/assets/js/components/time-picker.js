@@ -11,7 +11,7 @@ function TimePicker({ fromDate, toDate, timeSelection }) {
         intervalLink(interval) {
             const queryParams = new URLSearchParams(window.location.search)
             queryParams.set('interval', interval)
-            return `summary?${queryParams.toString()}`
+            return `summary/classic?${queryParams.toString()}`
         },
         onSubmit() {
             const query = new URLSearchParams(window.location.search)

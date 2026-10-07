@@ -3,6 +3,7 @@ package routes
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/duke-git/lancet/v2/slice"
@@ -48,9 +49,20 @@ func (h *SummaryHandler) RegisterRoutes(router chi.Router) {
 		WithRedirectTarget(defaultErrorRedirectTarget()).
 		WithRedirectErrorMessage("unauthorized").Handler,
 	)
-	r.Get("/", h.GetIndex)
+	r.Get("/", h.GetRedirect)
+	r.Get("/classic", h.GetIndex)
 
 	router.Mount("/summary", r)
+}
+
+// GetRedirect sends /summary to the activity dashboard, keeping the query string (e.g. ?interval=any, ?project=x).
+// The previous summary page stays available at /summary/classic.
+func (h *SummaryHandler) GetRedirect(w http.ResponseWriter, r *http.Request) {
+	target := fmt.Sprintf("%s/dashboard", strings.TrimSuffix(h.config.Server.BasePath, "/"))
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func (h *SummaryHandler) GetIndex(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +77,7 @@ func (h *SummaryHandler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		// preserving any other query params (e.g. a project filter)
 		if intervalCookie, _ := r.Cookie(models.PersistentIntervalKey); intervalCookie != nil {
 			q.Set("interval", intervalCookie.Value)
-			http.Redirect(w, r, fmt.Sprintf("%s/summary?%s", h.config.Server.BasePath, q.Encode()), http.StatusFound)
+			http.Redirect(w, r, fmt.Sprintf("%s/summary/classic?%s", h.config.Server.BasePath, q.Encode()), http.StatusFound)
 			return
 		}
 
