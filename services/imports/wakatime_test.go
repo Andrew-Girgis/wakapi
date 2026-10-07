@@ -8,6 +8,7 @@ import (
 
 	"github.com/muety/wakapi/config"
 	"github.com/muety/wakapi/models"
+	wakatime "github.com/muety/wakapi/models/compat/wakatime/v1"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -164,4 +165,38 @@ func (suite *WakatimeImporterTestSuite) TestRedirectValidation() {
 			})
 		}
 	}
+}
+
+func (suite *WakatimeImporterTestSuite) TestMapHeartbeat_KeepsAIFields() {
+	user := &models.User{ID: "gopher"}
+	entry := &wakatime.HeartbeatEntry{
+		Id:                  "hb1",
+		Entity:              "Claude 7782ee12",
+		Type:                "app",
+		Category:            "ai coding",
+		Time:                1791347616.5,
+		MachineNameId:       "m1",
+		UserAgentId:         "ua1",
+		AISession:           "7782ee12",
+		AIInputTokens:       1986,
+		AICachedInputTokens: 90512,
+		AIOutputTokens:      526,
+		AIPromptLength:      120,
+		AILineChanges:       14,
+		HumanLineChanges:    2,
+	}
+	userAgents := map[string]*wakatime.UserAgentEntry{"ua1": {Id: "ua1", Value: "wakatime/v2.26.15 (darwin-27.0.0-arm64) go1.26.8 opus/5-5 claude-code/2.1.284", Editor: "claude-code", AIModel: "opus"}}
+	machines := map[string]*wakatime.MachineEntry{"m1": {Id: "m1", Value: "pythia"}}
+
+	hb := mapHeartbeat(entry, userAgents, machines, user)
+
+	suite.Equal("7782ee12", hb.AISession)
+	suite.Equal(1986, hb.AIInputTokens)
+	suite.Equal(90512, hb.AICachedInputTokens)
+	suite.Equal(526, hb.AIOutputTokens)
+	suite.Equal(120, hb.AIPromptLength)
+	suite.Equal(14, hb.AILineChanges)
+	suite.Equal(2, hb.HumanLineChanges)
+	suite.Equal("opus", hb.AIModel)
+	suite.Equal("pythia", hb.Machine)
 }

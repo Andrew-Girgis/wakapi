@@ -100,8 +100,9 @@ func mapHeartbeat(
 		// try to parse id as an actual user agent string (as returned by wakapi)
 		if parsed, err := utils.ParseUserAgent(entry.UserAgentId); err == nil {
 			ua = &wakatime.UserAgentEntry{
-				Editor: parsed.Editor,
-				Os:     parsed.OS,
+				Editor:  parsed.Editor,
+				Os:      parsed.OS,
+				AIModel: parsed.AIModel,
 			}
 		} else {
 			ua = &wakatime.UserAgentEntry{
@@ -120,23 +121,35 @@ func mapHeartbeat(
 	}
 
 	return (&models.Heartbeat{
-		User:            user,
-		UserID:          user.ID,
-		Entity:          entry.Entity,
-		Type:            entry.Type,
-		Category:        entry.Category,
-		Project:         entry.Project,
-		Branch:          entry.Branch,
-		Language:        entry.Language,
-		IsWrite:         entry.IsWrite,
-		Editor:          ua.Editor,
-		AIModel:         ua.AIModel,
-		OperatingSystem: ua.Os,
-		Machine:         ma.Value,
-		UserAgent:       ua.Value,
-		Time:            models.CustomTime(time.Unix(0, int64(entry.Time*1e9))),
-		Origin:          OriginWakatime,
-		OriginId:        entry.Id,
-		CreatedAt:       models.CustomTime(entry.CreatedAt),
+		User:                user,
+		UserID:              user.ID,
+		Entity:              entry.Entity,
+		Type:                entry.Type,
+		Category:            entry.Category,
+		Project:             entry.Project,
+		Branch:              entry.Branch,
+		Language:            entry.Language,
+		IsWrite:             entry.IsWrite,
+		Editor:              ua.Editor,
+		AIModel:             ua.AIModel,
+		OperatingSystem:     ua.Os,
+		Machine:             ma.Value,
+		UserAgent:           ua.Value,
+		Time:                models.CustomTime(time.Unix(0, int64(entry.Time*1e9))),
+		Origin:              OriginWakatime,
+		OriginId:            entry.Id,
+		CreatedAt:           models.CustomTime(entry.CreatedAt),
+		Lines:               entry.Lines,
+		LineNo:              entry.LineNo,
+		CursorPos:           entry.CursorPos,
+		LineAdditions:       entry.LineAdditions,
+		LineDeletions:       entry.LineDeletions,
+		AILineChanges:       entry.AILineChanges,
+		AISession:           entry.AISession,
+		AIInputTokens:       entry.AIInputTokens,
+		AICachedInputTokens: entry.AICachedInputTokens,
+		AIOutputTokens:      entry.AIOutputTokens,
+		AIPromptLength:      entry.AIPromptLength,
+		HumanLineChanges:    entry.HumanLineChanges,
 	}).Hashed()
 }

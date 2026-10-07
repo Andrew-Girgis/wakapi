@@ -69,9 +69,11 @@ type Heartbeat struct {
 	AILineChanges    int        `json:"ai_line_changes,omitempty" hash:"ignore"`
 	AISession        string     `json:"ai_session,omitempty" hash:"ignore"`
 	AIInputTokens    int        `json:"ai_input_tokens,omitempty" hash:"ignore"`
-	AIOutputTokens   int        `json:"ai_output_tokens,omitempty" hash:"ignore"`
-	AIPromptLength   int        `json:"ai_prompt_length,omitempty" hash:"ignore"`
-	HumanLineChanges int        `json:"human_line_changes,omitempty" hash:"ignore"`
+	// cache read tokens, sent separately from ai_input_tokens since https://github.com/wakatime/wakatime-cli/commit/430a1d8f
+	AICachedInputTokens int `json:"ai_cached_input_tokens,omitempty" hash:"ignore"`
+	AIOutputTokens      int `json:"ai_output_tokens,omitempty" hash:"ignore"`
+	AIPromptLength      int `json:"ai_prompt_length,omitempty" hash:"ignore"`
+	HumanLineChanges    int `json:"human_line_changes,omitempty" hash:"ignore"`
 }
 
 func (h *Heartbeat) Valid() bool {

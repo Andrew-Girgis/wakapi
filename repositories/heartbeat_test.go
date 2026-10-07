@@ -100,6 +100,25 @@ func (suite *HeartbeatRepositoryTestSuite) TestHeartbeatRepository_StreamWithinE
 	assert.Contains(suite.T(), entities, "null_coding")
 }
 
+func (suite *HeartbeatRepositoryTestSuite) TestHeartbeatRepository_AICachedInputTokensColumn() {
+	assert.True(suite.T(), suite.TestDb.Migrator().HasColumn(&models.Heartbeat{}, "ai_cached_input_tokens"))
+
+	heartbeat := &models.Heartbeat{
+		UserID:              TestUserId,
+		Entity:              "cached_tokens",
+		Time:                models.CustomTime(suite.TestStartTime.Add(-time.Hour)),
+		CreatedAt:           models.CustomTime(suite.TestStartTime),
+		AIInputTokens:       1986,
+		AICachedInputTokens: 90512,
+	}
+	heartbeat.Hashed()
+	suite.Require().NoError(suite.TestDb.Create(heartbeat).Error)
+
+	var cached int
+	suite.Require().NoError(suite.TestDb.Raw("SELECT ai_cached_input_tokens FROM heartbeats WHERE id = ?", heartbeat.ID).Scan(&cached).Error)
+	assert.Equal(suite.T(), 90512, cached)
+}
+
 func (suite *HeartbeatRepositoryTestSuite) streamEntitiesExcluding(exclusions []models.HeartbeatExclusionFilter) []string {
 	sut := NewHeartbeatRepository(suite.TestDb)
 
