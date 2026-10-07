@@ -173,11 +173,11 @@ func TestDashboardService_Machines(t *testing.T) {
 	assert.Equal(t, 1, m.LiveCount)
 	assert.Equal(t, "omphalos", m.Machines[0].Name)
 	assert.True(t, m.Machines[0].Live)
-	assert.Equal(t, "Zed", m.Machines[0].ActiveAgent)
+	assert.Equal(t, "Zed", m.Machines[0].ActiveAgent) // editors keep their name
 	assert.Equal(t, "Pythia", m.Machines[1].Name)
 	assert.False(t, m.Machines[1].Live)
 	assert.Len(t, m.Warnings, 1)
-	assert.Equal(t, "Codex-cli on Pythia: silent for 10 days", m.Warnings[0].Message)
+	assert.Equal(t, "Codex CLI on Pythia: silent for 10 days", m.Warnings[0].Message)
 }
 
 func TestDashboardService_Projects(t *testing.T) {
@@ -234,4 +234,27 @@ func TestLabelStatus(t *testing.T) {
 	assert.Equal(t, "paused", labelStatus("Paused"))
 	assert.Equal(t, "done", labelStatus("status:done"))
 	assert.Equal(t, "", labelStatus("client-work"))
+}
+
+func TestAgentTool(t *testing.T) {
+	assert.Equal(t, "Claude Code", AgentTool("Claude"))
+	assert.Equal(t, "Claude Code", AgentTool("Claude code"))
+	assert.Equal(t, "Codex CLI", AgentTool("Codex cli"))
+	assert.Equal(t, "Codex CLI", AgentTool("Codex-cli"))
+	assert.Equal(t, "Codex VS Code", AgentTool("Codex-vscode"))
+	assert.Equal(t, "Pi", AgentTool("Pi-coding-agent"))
+	assert.Equal(t, "", AgentTool("Mnemosyne-m1-check"))
+	assert.Equal(t, "", AgentTool("Zed"))
+}
+
+func TestDashboardService_Machines_IgnoresNonAgentTools(t *testing.T) {
+	defer config.Set(config.Empty())
+	sut := newDashboardTestService()
+	fake := sut.heartbeatSrvc.(*fakeHeartbeatSrvc)
+	for k := 0; k < 25; k++ { // a test client that stopped on purpose
+		fake.heartbeats = append(fake.heartbeats, &models.Heartbeat{Time: models.CustomTime(dashStart.AddDate(0, 0, -8).Add(time.Duration(k) * time.Minute)),
+			Machine: "omphalos", Editor: "Mnemosyne-m1-check", Category: "ai coding", Type: "app"})
+	}
+	m, _ := sut.Machines(dashUser, dashStart.Add(46*time.Minute))
+	assert.Len(t, m.Warnings, 1)
 }

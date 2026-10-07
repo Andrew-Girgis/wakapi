@@ -118,3 +118,31 @@ func TestDashboardApi_ServiceErrorIs500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.NotContains(t, rec.Body.String(), assert.AnError.Error()) // internal errors are not leaked
 }
+
+func TestLastDays(t *testing.T) {
+	tz, _ := time.LoadLocation("America/Toronto")
+	now := time.Date(2026, 10, 7, 2, 30, 0, 0, tz)
+	from, to := LastDays(now, 7, tz)
+	assert.Equal(t, time.Date(2026, 10, 1, 0, 0, 0, 0, tz), from)
+	assert.Equal(t, time.Date(2026, 10, 8, 0, 0, 0, 0, tz), to)
+}
+
+func TestDashboardApi_DaysParameter(t *testing.T) {
+	handler, _ := newDashboardTestHandler()
+	user := &models.User{ID: "testuser", Location: "America/Toronto"}
+	var gotFrom, gotTo time.Time
+	h := handler.withRange(func(u *models.User, from, to time.Time, f services.DashboardFilters) (any, error) {
+		gotFrom, gotTo = from, to
+		return map[string]string{}, nil
+	})
+
+	rec := httptest.NewRecorder()
+	h(rec, dashboardRequest("/api/dashboard/activity?days=7", user))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 0, gotFrom.In(user.TZ()).Hour())
+	assert.Equal(t, 7, int(gotTo.Sub(gotFrom).Hours()/24+0.5))
+
+	rec = httptest.NewRecorder()
+	h(rec, dashboardRequest("/api/dashboard/activity?days=0", user))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

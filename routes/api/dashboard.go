@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -52,10 +53,22 @@ func (h *DashboardApiHandler) RegisterRoutes(router chi.Router) {
 
 type rangeFunc func(*models.User, time.Time, time.Time, services.DashboardFilters) (any, error)
 
-// withRange parses interval (default last_7_days) or from/to, plus the project and machine filters.
+// withRange parses days=N (whole local days, the dashboard's default), interval (default last_7_days) or from/to,
+// plus the project and machine filters.
 func (h *DashboardApiHandler) withRange(f rangeFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		if days := q.Get("days"); days != "" {
+			n, err := strconv.Atoi(days)
+			if err != nil || n < 1 || n > 3660 {
+				helpers.RespondJSON(w, r, http.StatusBadRequest, map[string]string{"error": "invalid 'days' parameter"})
+				return
+			}
+			user := middlewares.GetPrincipal(r)
+			from, to := LastDays(time.Now(), n, user.TZ())
+			h.respond(w, r)(f(user, from, to, filtersFrom(r)))
+			return
+		}
 		if q.Get("interval") == "" && q.Get("from") == "" && q.Get("start") == "" {
 			q.Set("interval", (*models.IntervalPast7Days)[0])
 			r.URL.RawQuery = q.Encode()
@@ -67,6 +80,13 @@ func (h *DashboardApiHandler) withRange(f rangeFunc) http.HandlerFunc {
 		}
 		h.respond(w, r)(f(params.User, params.From, params.To, filtersFrom(r)))
 	}
+}
+
+// LastDays returns whole local days: from the start of the day n-1 days before now to the start of tomorrow.
+func LastDays(now time.Time, n int, tz *time.Location) (time.Time, time.Time) {
+	local := now.In(tz)
+	tomorrow := time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, tz)
+	return tomorrow.AddDate(0, 0, -n), tomorrow
 }
 
 // GetTimeline returns one day of activity; date=YYYY-MM-DD in the user's time zone (default today).

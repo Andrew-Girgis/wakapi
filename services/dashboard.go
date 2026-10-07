@@ -101,6 +101,25 @@ func AgentGroup(editor string) string {
 	}
 }
 
+// AgentTool returns one display name per agent tool, merging editor name variants (e.g. "Claude", "Claude code"),
+// or "" for editors that are not a known agent.
+func AgentTool(editor string) string {
+	e := strings.ReplaceAll(strings.ToLower(editor), " ", "-")
+	switch {
+	case strings.HasPrefix(e, "claude"):
+		return "Claude Code"
+	case e == "codex-vscode":
+		return "Codex VS Code"
+	case strings.HasPrefix(e, "codex"), e == "gpt":
+		return "Codex CLI"
+	case e == "pi", strings.HasPrefix(e, "pi-"):
+		return "Pi"
+	case strings.HasPrefix(e, "opencode"):
+		return "OpenCode"
+	}
+	return ""
+}
+
 func isAgentHeartbeat(h *models.Heartbeat) bool {
 	return strings.EqualFold(h.Category, models.HeartbeatCategoryAiCoding)
 }
@@ -553,13 +572,17 @@ func (srv *DashboardService) Machines(user *models.User, now time.Time) (*view.D
 			m.LastSeen, m.OS = t, h.OperatingSystem
 			latest[h.Machine] = h
 		}
-		k := agentKey{h.Machine, h.Editor}
+		editor, group := h.Editor, GroupYou
+		if isAgentHeartbeat(h) {
+			group = AgentGroup(h.Editor)
+			if tool := AgentTool(h.Editor); tool != "" {
+				editor = tool
+			}
+		}
+		k := agentKey{h.Machine, editor}
 		a, ok := agents[k]
 		if !ok {
-			a = &view.DashboardAgentSeen{Editor: h.Editor, Group: AgentGroup(h.Editor)}
-			if !isAgentHeartbeat(h) {
-				a.Group = GroupYou
-			}
+			a = &view.DashboardAgentSeen{Editor: editor, Group: group}
 			agents[k] = a
 		}
 		a.Heartbeats30d++
@@ -571,7 +594,9 @@ func (srv *DashboardService) Machines(user *models.User, now time.Time) (*view.D
 	out := &view.DashboardMachines{Now: now, Machines: []view.DashboardMachine{}, Warnings: []view.DashboardWarning{}}
 	for k, a := range agents {
 		machines[k.machine].Agents = append(machines[k.machine].Agents, *a)
-		if silent := now.Sub(a.LastSeen); a.Heartbeats30d >= dashboardSilentMinHb && silent >= dashboardSilentAfter {
+		// only known agent tools warn: editors and test clients come and go on purpose
+		isTool := a.Group != GroupYou && AgentTool(a.Editor) != ""
+		if silent := now.Sub(a.LastSeen); isTool && a.Heartbeats30d >= dashboardSilentMinHb && silent >= dashboardSilentAfter {
 			days := int(silent.Hours() / 24)
 			out.Warnings = append(out.Warnings, view.DashboardWarning{
 				Machine: k.machine, Editor: a.Editor, SilentDays: days, LastSeen: a.LastSeen,
@@ -583,8 +608,8 @@ func (srv *DashboardService) Machines(user *models.User, now time.Time) (*view.D
 		m.Live = now.Sub(m.LastSeen) <= dashboardLiveWindow
 		if m.Live {
 			out.LiveCount++
-			if h := latest[name]; isAgentHeartbeat(h) {
-				m.ActiveAgent = AgentGroup(h.Editor)
+			if h := latest[name]; isAgentHeartbeat(h) && AgentTool(h.Editor) != "" {
+				m.ActiveAgent = AgentTool(h.Editor)
 			} else {
 				m.ActiveAgent = h.Editor
 			}
