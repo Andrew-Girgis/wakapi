@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{{ template "head.tpl.html" . }}
+
+<style>
+    /* dashboard palette (dark), see docs/dashboard/mockup.png */
+    #dashboard {
+        --d-bg: 11 14 29;
+        --d-card: 16 20 38;
+        --d-line: 33 40 66;
+        --d-text: 230 232 242;
+        --d-muted: 138 144 168;
+        --d-accent: 124 108 246;
+    }
+    body.dashboard-page { background: rgb(11 14 29); }
+    .d-card { background: rgb(var(--d-card)); border: 1px solid rgb(var(--d-line)); }
+    .d-line { border-color: rgb(var(--d-line)); }
+    .d-text { color: rgb(var(--d-text)); }
+    .d-muted { color: rgb(var(--d-muted)); }
+    .d-num { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+    .d-tab { color: rgb(var(--d-muted)); border-bottom: 2px solid transparent; }
+    .d-tab:hover { color: rgb(var(--d-text)); }
+    .d-tab.active { color: rgb(var(--d-text)); border-bottom-color: rgb(var(--d-accent)); }
+    .d-select { background: rgb(var(--d-card)); border: 1px solid rgb(var(--d-line)); color: rgb(var(--d-text)); }
+    .d-skeleton { background: linear-gradient(90deg, rgb(var(--d-line) / .35), rgb(var(--d-line) / .7), rgb(var(--d-line) / .35)); background-size: 200% 100%; animation: d-shimmer 1.4s infinite; }
+    @keyframes d-shimmer { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+    .d-note { color: rgb(251 191 36); }
+    .d-up { color: rgb(74 222 128); }
+    .d-down { color: rgb(248 113 113); }
+</style>
+
+<body class="dashboard-page relative text-foreground p-4 pt-8 flex flex-col min-h-screen max-w-screen-2xl mx-auto">
+
+{{ template "menu-main.tpl.html" . }}
+
+{{ template "alerts.tpl.html" . }}
+
+<main id="dashboard" class="grow mt-8 d-text" v-scope @vue:mounted="mounted" v-cloak>
+
+    <!-- Header: title, date range, range picker, live machines -->
+    <header class="flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+            <svg width="30" height="26" viewBox="0 0 30 26" aria-hidden="true"><path d="M15 1 29 25H1Z" fill="rgb(124 108 246)"/><path d="M15 9 22 22H8Z" fill="rgb(11 14 29)"/></svg>
+            <h1 class="text-3xl font-semibold tracking-tight">Activity</h1>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 text-sm">
+            <span class="d-num" v-if="rangeLabel"><span v-text="rangeLabel"></span></span>
+            <select class="d-select rounded-lg px-3 py-2" v-model="range" @change="applyFilters" aria-label="Date range">
+                <option value="days:1">Today</option>
+                <option value="days:7">7 days</option>
+                <option value="days:30">30 days</option>
+                <option value="days:90">90 days</option>
+                <option value="interval:any">All time</option>
+                <option v-if="customRange" :value="customRange" v-text="customRangeLabel"></option>
+            </select>
+            <span class="flex items-center gap-2" :title="liveTitle">
+                <span class="inline-block w-2.5 h-2.5 rounded-full" :class="liveCount > 0 ? 'bg-green-500' : 'bg-gray-500'"></span>
+                <span v-if="panels.machines.data"><span v-text="liveCount"></span> <span v-text="liveCount === 1 ? 'machine' : 'machines'"></span> live</span>
+                <span v-else class="d-muted">machines …</span>
+            </span>
+        </div>
+    </header>
+
+    <!-- Tabs + filters -->
+    <nav class="flex flex-wrap items-end justify-between gap-4 mt-6 border-b d-line">
+        <div class="flex gap-6 text-base overflow-x-auto">
+            <a v-for="t in tabs" :key="t.id" :href="'#' + t.id" class="d-tab pb-3 whitespace-nowrap" :class="{ active: tab === t.id }" @click="tab = t.id" v-text="t.label"></a>
+        </div>
+        <div class="flex flex-wrap gap-3 pb-3 text-sm">
+            <select class="d-select rounded-lg px-3 py-2 max-w-[14rem]" v-model="project" @change="applyFilters" aria-label="Project filter">
+                <option value="">All projects</option>
+                <option v-for="p in projectOptions" :value="p" v-text="p"></option>
+            </select>
+            <select class="d-select rounded-lg px-3 py-2" v-model="machine" @change="applyFilters" aria-label="Machine filter">
+                <option value="">All machines</option>
+                <option v-for="m in machineOptions" :value="m" v-text="m"></option>
+            </select>
+        </div>
+    </nav>
+
+    <!-- Headline numbers -->
+    <section id="overview" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 border-b d-line">
+        <div v-if="panels.overview.error" class="col-span-full py-6 flex items-center gap-3 text-sm">
+            <span class="d-down">Couldn't load the headline numbers.</span>
+            <button class="underline d-muted" @click="load('overview')">Retry</button>
+        </div>
+            <div v-if="!panels.overview.error" class="py-5 sm:pr-6 xl:border-r d-line">
+                <div class="d-muted text-sm">Coding time</div>
+                <div v-if="ov" class="text-4xl font-semibold d-num mt-1"><span v-text="fmtDuration(ov.time.total_seconds)"></span></div>
+                <div v-else class="d-skeleton h-10 w-40 rounded mt-1"></div>
+                <div v-if="ov" class="text-sm mt-1">
+                    <span v-if="ov.time.change_percent !== null">
+                        <span :class="ov.time.change_percent >= 0 ? 'd-up' : 'd-down'" class="font-semibold"><span v-text="ov.time.change_percent >= 0 ? '↑ +' : '↓ '"></span><span v-text="ov.time.change_percent"></span>%</span>
+                        <span class="d-muted ml-1">vs previous <span v-text="periodName"></span></span>
+                    </span>
+                    <span v-else class="d-muted">no activity in the previous <span v-text="periodName"></span></span>
+                </div>
+            </div>
+            <div v-if="!panels.overview.error" class="py-5 sm:px-6 xl:border-r d-line">
+                <div class="d-muted text-sm">AI coding</div>
+                <div v-if="ov" class="text-4xl font-semibold d-num mt-1"><span v-text="ov.time.ai_percent"></span>%</div>
+                <div v-else class="d-skeleton h-10 w-28 rounded mt-1"></div>
+                <div v-if="ov" class="text-sm mt-1 d-num">You <span v-text="fmtDuration(ov.time.you_seconds)"></span> · Agents <span v-text="fmtDuration(ov.time.agent_seconds)"></span></div>
+                <div v-if="ov" class="text-xs d-muted mt-0.5" title="You and agents active at the same time; both numbers include it, the total counts it once">Overlapping time <span v-text="fmtDuration(ov.time.overlap_seconds)"></span></div>
+            </div>
+            <div v-if="!panels.overview.error" class="py-5 sm:pr-6 xl:px-6 xl:border-r d-line">
+                <div class="d-muted text-sm">Tokens</div>
+                <div v-if="ov" class="text-4xl font-semibold d-num mt-1"><span v-text="fmtTokens(ov.tokens.total)"></span></div>
+                <div v-else class="d-skeleton h-10 w-28 rounded mt-1"></div>
+                <div v-if="ov" class="text-sm d-muted mt-1 d-num" :title="fmtInt(ov.tokens.input) + ' new · ' + fmtInt(ov.tokens.cached_input) + ' cached · ' + fmtInt(ov.tokens.output) + ' output'"><span v-text="ov.tokens.cached_percent"></span>% cached · <span v-text="fmtTokens(ov.tokens.output)"></span> out</div>
+            </div>
+            <div v-if="!panels.overview.error" class="py-5 sm:px-6">
+                <div class="d-muted text-sm">Estimated API value</div>
+                <div v-if="ov" class="text-4xl font-semibold d-num mt-1"><span v-text="fmtUSD(ov.cost.estimated_api_value)"></span></div>
+                <div v-else class="d-skeleton h-10 w-36 rounded mt-1"></div>
+                <div v-if="ov" class="text-sm d-muted mt-1 d-num">
+                    <span v-if="ov.cost.subscription_value > 0">Subscription usage <span v-text="fmtUSD(ov.cost.subscription_value)"></span> · not billed spend</span>
+                    <span v-else>At API list prices · no subscription usage recorded</span>
+                </div>
+                <div v-if="ov && ov.cost.unpriced_tokens > 0" class="text-xs d-muted mt-0.5"><span v-text="fmtTokens(ov.cost.unpriced_tokens)"></span> tokens without a price</div>
+            </div>
+            <div v-if="ov && ov.coverage_notes.length" class="col-span-full pb-4 -mt-1 text-xs d-note flex flex-col gap-0.5">
+                <span v-for="n in ov.coverage_notes">⚠ <span v-text="n"></span></span>
+            </div>
+    </section>
+
+    <footer class="flex justify-between text-xs d-muted mt-6 mb-2">
+        <span>Local data · Heartbeat activity · <span v-text="timeZone"></span></span>
+        <span>Estimates in USD</span>
+    </footer>
+</main>
+
+{{ template "footer.tpl.html" . }}
+
+{{ template "foot.tpl.html" . }}
+
+<script>
+    const dashboardTimeZone = {{ .TimeZone | json }}
+</script>
+<script type="module" src="assets/js/dashboard/app.js?v={{ getCacheBuster }}"></script>
+
+</body>
+
+</html>
