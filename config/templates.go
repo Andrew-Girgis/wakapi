@@ -12,4 +12,5 @@ const (
 	SummaryTemplate       = "summary.tpl.html"
 	LeaderboardTemplate   = "leaderboard.tpl.html"
 	ProjectsTemplate      = "projects.tpl.html"
+	DashboardTemplate     = "dashboard.tpl.html"
 )

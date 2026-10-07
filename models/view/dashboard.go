@@ -170,3 +170,19 @@ type DashboardProjects struct {
 	Projects     []DashboardProject `json:"projects"`
 	StatusSource string             `json:"status_source"` // "labels" or "mnemosyne"
 }
+
+// DashboardViewModel renders the /dashboard page shell; all data is loaded by the panels from /api/dashboard/*.
+type DashboardViewModel struct {
+	SharedLoggedInViewModel
+	TimeZone string
+}
+
+func (s *DashboardViewModel) WithSuccess(m string) *DashboardViewModel {
+	s.SetSuccess(m)
+	return s
+}
+
+func (s *DashboardViewModel) WithError(m string) *DashboardViewModel {
+	s.SetError(m)
+	return s
+}
