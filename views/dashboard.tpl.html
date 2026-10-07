@@ -125,6 +125,62 @@
             </div>
     </section>
 
+    <!-- Activity this week + agent share -->
+    <section id="agents" class="grid grid-cols-1 xl:grid-cols-3 gap-6 py-6 border-b d-line">
+        <div class="xl:col-span-2 min-w-0">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <h2 class="text-2xl font-semibold" v-text="activityTitle"></h2>
+                    <span v-for="g in activityGroups" class="flex items-center gap-2 text-sm">
+                        <span class="inline-block w-3 h-3 rounded-full" :style="{ background: groupColors[g] }"></span><span v-text="g"></span>
+                    </span>
+                </div>
+                <div class="flex rounded-lg overflow-hidden border d-line text-sm" role="group" aria-label="Show time or tokens">
+                    <button class="px-4 py-1.5" :class="activityMode === 'time' ? 'bg-white/10 d-text' : 'd-muted'" @click="setActivityMode('time')">Time</button>
+                    <button class="px-4 py-1.5 border-l d-line" :class="activityMode === 'tokens' ? 'bg-white/10 d-text' : 'd-muted'" @click="setActivityMode('tokens')">Tokens</button>
+                </div>
+            </div>
+            <div class="relative h-64 mt-4">
+                <canvas id="activity-chart" v-show="act && !panels.activity.error"></canvas>
+                <div v-if="!act && !panels.activity.error" class="d-skeleton absolute inset-0 rounded"></div>
+                <div v-if="panels.activity.error" class="absolute inset-0 flex items-center justify-center gap-3 text-sm">
+                    <span class="d-down">Couldn't load activity.</span>
+                    <button class="underline d-muted" @click="load('activity')">Retry</button>
+                </div>
+            </div>
+            <div v-if="activityMode === 'tokens' && ov && ov.coverage_notes.length" class="text-xs d-note mt-2">⚠ Token bars inside the cached-token gap are too low.</div>
+        </div>
+
+        <div class="xl:border-l d-line xl:pl-6 flex flex-col">
+            <div v-if="panels.activity.error" class="text-sm d-muted">—</div>
+            <div v-if="!act && !panels.activity.error" class="flex flex-col gap-5">
+                <div class="d-skeleton h-10 rounded"></div><div class="d-skeleton h-10 rounded"></div><div class="d-skeleton h-10 rounded"></div>
+            </div>
+            <div v-if="act" class="flex flex-col gap-4">
+                <div v-for="s in shareRows">
+                    <div class="text-base" v-text="s.group"></div>
+                    <div class="flex items-center gap-4 mt-1">
+                        <div class="flex-1 h-3.5 rounded bg-white/5 overflow-hidden">
+                            <div class="h-full rounded" :style="{ width: Math.max(s.percent, 1) + '%', background: groupColors[s.group] }"></div>
+                        </div>
+                        <span class="w-12 text-right d-num" v-text="Math.round(s.percent) + '%'"></span>
+                    </div>
+                </div>
+                <div v-if="!shareRows.length" class="text-sm d-muted">No activity in this range.</div>
+            </div>
+            <div v-if="act" class="grid grid-cols-2 border-t d-line mt-auto pt-4">
+                <div>
+                    <div class="text-2xl font-semibold d-num" v-text="act.sessions.sessions_per_day"></div>
+                    <div class="text-sm d-muted">sessions / day</div>
+                </div>
+                <div class="border-l d-line pl-6">
+                    <div class="text-2xl font-semibold d-num" v-text="fmtMinutes(act.sessions.median_session_seconds)"></div>
+                    <div class="text-sm d-muted" title="Active time of an AI session (gaps under your timeout), not first-to-last">median session</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <footer class="flex justify-between text-xs d-muted mt-6 mb-2">
         <span>Local data · Heartbeat activity · <span v-text="timeZone"></span></span>
         <span>Estimates in USD</span>
