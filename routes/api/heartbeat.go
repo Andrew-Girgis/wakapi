@@ -79,6 +79,7 @@ func (h *HeartbeatApiHandler) Post(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 		return
 	}
+	routeutils.TrackUnknownHeartbeatFields(r)
 
 	userAgentHeader := r.Header.Get("User-Agent")
 	parsedHeader, _ := utils.ParseUserAgent(userAgentHeader)

@@ -18,6 +18,7 @@ import (
 	v1 "github.com/muety/wakapi/models/compat/wakatime/v1"
 	mm "github.com/muety/wakapi/models/metrics"
 	"github.com/muety/wakapi/repositories"
+	routeutils "github.com/muety/wakapi/routes/utils"
 	"github.com/muety/wakapi/services"
 	"github.com/muety/wakapi/utils"
 )
@@ -46,6 +47,7 @@ const (
 
 	DescJobQueueEnqueued      = "Number of jobs currently enqueued"
 	DescJobQueueTotalFinished = "Total number of processed jobs"
+	DescUnknownFields         = "Number of received heartbeat fields that Wakapi does not store, since start-up"
 
 	DescMemAlloc        = "Total number of bytes currently allocated for heap"
 	DescMemSys          = "Total number of bytes currently obtained from the OS"
@@ -374,6 +376,15 @@ func (h *MetricsHandler) getUserMetrics(user *models.User) (*mm.Metrics, error) 
 			Value:  int64(qm.FinishedJobs),
 			Desc:   DescJobQueueTotalFinished,
 			Labels: []mm.Label{{Key: "queue", Value: qm.Queue}},
+		})
+	}
+
+	for field, count := range routeutils.UnknownHeartbeatFieldCounts() {
+		metrics = append(metrics, &mm.CounterMetric{
+			Name:   MetricsPrefix + "_heartbeat_unknown_fields_total",
+			Desc:   DescUnknownFields,
+			Value:  count,
+			Labels: []mm.Label{{Key: "field", Value: field}},
 		})
 	}
 
