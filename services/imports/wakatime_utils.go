@@ -154,6 +154,7 @@ func mapHeartbeat(
 		AICachedInputTokens: entry.AICachedInputTokens,
 		AIOutputTokens:      entry.AIOutputTokens,
 		AIPromptLength:      entry.AIPromptLength,
+		AISubscriptionPlan:  entry.AISubscriptionPlan,
 		HumanLineChanges:    entry.HumanLineChanges,
 	}).Hashed()
 }

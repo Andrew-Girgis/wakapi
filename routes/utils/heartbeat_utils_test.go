@@ -19,8 +19,8 @@ func resetUnknownFields() {
 func TestTrackUnknownHeartbeatFields_Bulk(t *testing.T) {
 	resetUnknownFields()
 
-	body := `[{"entity":"Claude e2e","time":1791347616.5,"ai_input_tokens":1986,"ai_subscription_plan":"max","dependencies":["fmt"]},
-	          {"entity":"main.go","time":1791347617.5,"AI_Input_Tokens":5,"id":"abc","ai_subscription_plan":"max"}]`
+	body := `[{"entity":"Claude e2e","time":1791347616.5,"ai_input_tokens":1986,"ai_subscription_plan":"max","dependencies":["fmt"],"future_field":1},
+	          {"entity":"main.go","time":1791347617.5,"AI_Input_Tokens":5,"id":"abc","future_field":2}]`
 	r := httptest.NewRequest("POST", "/", bytes.NewBufferString(body))
 	heartbeats, err := ParseHeartbeats(r)
 	assert.Nil(t, err)
@@ -33,7 +33,7 @@ func TestTrackUnknownHeartbeatFields_Bulk(t *testing.T) {
 	assert.Len(t, heartbeats, 2)
 
 	counts := UnknownHeartbeatFieldCounts()
-	assert.Equal(t, map[string]int64{"ai_subscription_plan": 2, "dependencies": 1}, counts)
+	assert.Equal(t, map[string]int64{"future_field": 2, "dependencies": 1}, counts)
 }
 
 func TestTrackUnknownHeartbeatFields_Single(t *testing.T) {

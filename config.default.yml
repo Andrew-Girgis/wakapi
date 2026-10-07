@@ -35,6 +35,11 @@ app:
   data_retention_months: -1                                 # maximum retention period on months for user data (heartbeats) (-1 for infinity)
   max_inactive_months: 12                                   # maximum months of inactivity before deleting user accounts
   warm_caches: true                                         # whether to run some initial cache warming upon startup
+  machine_aliases:                                          # hostname -> machine name (one machine reporting several hostnames)
+    Mac: Pythia
+    Mac.localdomain: Pythia
+    Pythia.local: Pythia
+    Andrews-Macbook-Air.local: Pythia
   custom_languages:
     vue: Vue
     jsx: JSX

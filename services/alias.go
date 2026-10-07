@@ -94,6 +94,10 @@ func (srv *AliasService) GetAliasOrDefault(userId string, summaryType uint8, val
 		}
 	}
 
+	if summaryType == models.SummaryMachine {
+		return srv.config.App.MachineName(value), nil
+	}
+
 	return value, nil
 }
 

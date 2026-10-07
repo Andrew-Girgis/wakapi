@@ -75,7 +75,9 @@ type Heartbeat struct {
 	AICachedInputTokens int `json:"ai_cached_input_tokens,omitempty" hash:"ignore"`
 	AIOutputTokens      int `json:"ai_output_tokens,omitempty" hash:"ignore"`
 	AIPromptLength      int `json:"ai_prompt_length,omitempty" hash:"ignore"`
-	HumanLineChanges    int `json:"human_line_changes,omitempty" hash:"ignore"`
+	// e.g. "max" or "pro" for subscription usage; empty for pay-per-token API usage or when the client does not know
+	AISubscriptionPlan string `json:"ai_subscription_plan,omitempty" gorm:"size:255" hash:"ignore"`
+	HumanLineChanges   int    `json:"human_line_changes,omitempty" hash:"ignore"`
 }
 
 func (h *Heartbeat) Valid() bool {

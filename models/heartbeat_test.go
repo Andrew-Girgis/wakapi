@@ -252,3 +252,16 @@ func TestHeartbeat_Hashed_IgnoresAICachedInputTokens(t *testing.T) {
 	h2.Hashed()
 	assert.Equal(t, h1.Hash, h2.Hash)
 }
+
+func TestHeartbeat_Unmarshal_AISubscriptionPlan(t *testing.T) {
+	var parsed Heartbeat
+	assert.Nil(t, json.Unmarshal([]byte(`{"entity":"Claude 1","time":1791347616.5,"ai_subscription_plan":"max"}`), &parsed))
+	assert.Equal(t, "max", parsed.AISubscriptionPlan)
+
+	h1 := &Heartbeat{UserID: "user1", Entity: "entity1", Time: CustomTime(time.Unix(1600000000, 0))}
+	h1.Hashed()
+	h2 := *h1
+	h2.AISubscriptionPlan = "max"
+	h2.Hashed()
+	assert.Equal(t, h1.Hash, h2.Hash)
+}
