@@ -119,6 +119,11 @@ func (suite *HeartbeatRepositoryTestSuite) TestHeartbeatRepository_AICachedInput
 	assert.Equal(suite.T(), 90512, cached)
 }
 
+func (suite *HeartbeatRepositoryTestSuite) TestHeartbeatRepository_AIModelVersionColumns() {
+	assert.True(suite.T(), suite.TestDb.Migrator().HasColumn(&models.Heartbeat{}, "ai_model_version"))
+	assert.True(suite.T(), suite.TestDb.Migrator().HasColumn(&models.Heartbeat{}, "ai_model_complexity"))
+}
+
 func (suite *HeartbeatRepositoryTestSuite) streamEntitiesExcluding(exclusions []models.HeartbeatExclusionFilter) []string {
 	sut := NewHeartbeatRepository(suite.TestDb)
 

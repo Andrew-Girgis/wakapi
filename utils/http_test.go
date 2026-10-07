@@ -472,3 +472,52 @@ func TestExtractAiModel(t *testing.T) {
 func checkErr(expected, actual error) bool {
 	return (expected == nil && actual == nil) || (expected != nil && actual != nil)
 }
+
+func TestSplitAiModelToken(t *testing.T) {
+	tests := []struct {
+		token, name, version, complexity string
+	}{
+		{"opus/4.1-medium", "opus", "4.1", "medium"},
+		{"opus/5-5", "opus", "5-5", ""},
+		{"gpt/5.5-high", "gpt", "5.5", "high"},
+		{"gpt/6-sol-medium", "gpt", "6-sol", "medium"},
+		{"gpt/6-sol-xhigh", "gpt", "6-sol", "xhigh"},
+		{"gpt/6-luna", "gpt", "6-luna", ""},
+		{"haiku/4-5-20251001", "haiku", "4-5-20251001", ""},
+		{"qwen/3-coder-plus", "qwen", "3-coder-plus", ""},
+		{"fable/5-High", "fable", "5", "High"},
+		{"M/3.0", "M", "3.0", ""},
+		{"", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.token, func(t *testing.T) {
+			name, version, complexity := splitAiModelToken(tt.token)
+			assert.Equal(t, tt.name, name)
+			assert.Equal(t, tt.version, version)
+			assert.Equal(t, tt.complexity, complexity)
+		})
+	}
+}
+
+func TestParseUserAgent_AIModelVersion(t *testing.T) {
+	parsed, err := ParseUserAgent("wakatime/v2.26.15 (darwin-27.0.0-arm64) go1.26.8 gpt/6-sol-medium codex-vscode/0.155.1")
+	assert.Nil(t, err)
+	assert.Equal(t, "gpt", parsed.AIModel)
+	assert.Equal(t, "6-sol", parsed.AIModelVersion)
+	assert.Equal(t, "medium", parsed.AIModelComplexity)
+
+	parsed, err = ParseUserAgent("wakatime/13.0.7 (Linux-4.15.0-96-generic-x86_64-with-glibc2.4) Python3.8.0.final.0 GoLand/2019.3.4 GoLand-wakatime/11.0.1")
+	assert.Nil(t, err)
+	assert.Empty(t, parsed.AIModel)
+	assert.Empty(t, parsed.AIModelVersion)
+	assert.Empty(t, parsed.AIModelComplexity)
+}
+
+func TestParseUserAgent_LegacyClaudeCodeToken(t *testing.T) {
+	parsed, err := ParseUserAgent("wakatime/v2.13.2 (darwin-25.4.0-arm64) go1.26.3 ClaudeCode/2.1.75 opencode-cli/1.14.50 opencode-wakatime/1.3.8")
+	assert.Nil(t, err)
+	assert.Equal(t, "ClaudeCode", parsed.AIModel) // unchanged upstream behavior
+	assert.Equal(t, "opencode-cli", parsed.Editor)
+	assert.Empty(t, parsed.AIModelVersion)
+	assert.Empty(t, parsed.AIModelComplexity)
+}

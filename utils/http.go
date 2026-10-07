@@ -27,6 +27,10 @@ var cacheMaxAgeRe *regexp.Regexp
 // https://github.com/muety/wakapi/issues/914
 var editorMiddlewares = set.New[string]("wakatime-ls", "wakatime-cli")
 
+// Reasoning effort levels that wakatime-cli appends to the model version (e.g. "gpt/5.5-high").
+// See https://github.com/wakatime/wakatime-cli/blob/430a1d8f/pkg/ai/ai.go#L790-L850
+var aiModelComplexities = set.New[string]("none", "minimal", "low", "medium", "high", "xhigh", "max")
+
 // Canonical list of AI parsers and harness tokens from wakatime-cli.
 // In wakatime-cli, AI tools identify themselves either via their parser name (e.g. "Claude", "Cursor", "Windsurf", "Copilot")
 // or via dedicated harness tokens (e.g. "claude-code", "codex-cli", "opencode-cli", "github-copilot-cli", "antigravity-cli").
@@ -139,9 +143,11 @@ func ParsePageParamsWithDefault(r *http.Request, page, size int) *PageParams {
 
 // ParsedUserAgent holds the result of parsing a User-Agent string.
 type ParsedUserAgent struct {
-	OS      string
-	Editor  string
-	AIModel string
+	OS                string
+	Editor            string
+	AIModel           string
+	AIModelVersion    string // e.g. "4.1" for "opus/4.1-medium"
+	AIModelComplexity string // reasoning effort, e.g. "medium" for "opus/4.1-medium"
 }
 
 // ParseUserAgent extracts the operating system, editor and – if present – the
@@ -161,7 +167,10 @@ func ParseUserAgent(ua string) (ParsedUserAgent, error) {
 			strings.HasPrefix(first, "firefox/") ||
 			strings.HasPrefix(first, "edge/") {
 
-			aiModel := extractAiModel(ua, parts)
+			aiModel, aiModelVersion, aiModelComplexity := splitAiModelToken(extractAiModelToken(ua, parts))
+			if strings.EqualFold(aiModel, "claudecode") { // older opencode-wakatime user agents start with "ClaudeCode/<release>", which is not a model version
+				aiModelVersion, aiModelComplexity = "", ""
+			}
 			editor := extractEditor(ua, parts, aiModel)
 			if editor == "KTextEditor" { // special treatment for neovim
 				editor = "kate"
@@ -188,9 +197,11 @@ func ParseUserAgent(ua string) (ParsedUserAgent, error) {
 			os = condition.Ternary[bool, string](osAllCaps, strings.ToUpper(os), strutil.Capitalize(os))
 
 			return ParsedUserAgent{
-				OS:      os,
-				Editor:  editor,
-				AIModel: aiModel,
+				OS:                os,
+				Editor:            editor,
+				AIModel:           aiModel,
+				AIModelVersion:    aiModelVersion,
+				AIModelComplexity: aiModelComplexity,
 			}, nil
 		}
 	}
@@ -334,6 +345,13 @@ func extractEditor(ua string, parts []string, aiModel string) string {
 // - If the first token is an AI harness (e.g. "Claude/2.1.118 PyCharm/2023.1"), it represents the harness itself without a separate model token.
 // - Single-token or non-AI user agents return empty.
 func extractAiModel(ua string, parts []string) string {
+	name, _, _ := splitAiModelToken(extractAiModelToken(ua, parts))
+	return name
+}
+
+// extractAiModelToken returns the full AI model token (e.g. "opus/4.1-medium") from a user agent string, or an empty string if there is none.
+// See extractAiModel for how the token is found.
+func extractAiModelToken(ua string, parts []string) string {
 	var candidates []string
 
 	for i := 1; i < len(parts); i++ {
@@ -368,7 +386,17 @@ func extractAiModel(ua string, parts []string) string {
 		return "" // first token is the AI harness itself (e.g. Claude/2.1.118 in PyCharm)
 	}
 
-	return c0Name
+	return candidates[0]
+}
+
+// splitAiModelToken splits an AI model token like "gpt/6-sol-medium" into its name ("gpt"), version ("6-sol") and reasoning effort ("medium").
+// Versions may contain dashes themselves (e.g. "opus/5-5", "qwen/3-coder-plus"), so only a known effort level at the end is split off.
+func splitAiModelToken(token string) (name, version, complexity string) {
+	name, version, _ = strings.Cut(token, "/")
+	if i := strings.LastIndex(version, "-"); i != -1 && aiModelComplexities.Contain(strings.ToLower(version[i+1:])) {
+		version, complexity = version[:i], version[i+1:]
+	}
+	return name, version, complexity
 }
 
 // extractPluginEditor extracts the editor represented by a WakaTime plugin token (e.g., "vscode-wakatime" -> "vscode", "wakatime.nvim" -> "neovim").

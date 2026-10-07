@@ -86,6 +86,8 @@ type HeartbeatEntry struct {
 	AIPromptLength      int       `json:"ai_prompt_length"`
 	HumanLineChanges    int       `json:"human_line_changes"`
 	AIModel             string    `json:"ai_model,omitempty"`
+	AIModelVersion      string    `json:"ai_model_version,omitempty"`
+	AIModelComplexity   string    `json:"ai_model_complexity,omitempty"`
 }
 
 func HeartbeatsToCompat(entries []*models.Heartbeat) []*HeartbeatEntry {
@@ -119,6 +121,8 @@ func HeartbeatsToCompat(entries []*models.Heartbeat) []*HeartbeatEntry {
 			AIPromptLength:      entry.AIPromptLength,
 			HumanLineChanges:    entry.HumanLineChanges,
 			AIModel:             entry.AIModel,
+			AIModelVersion:      entry.AIModelVersion,
+			AIModelComplexity:   entry.AIModelComplexity,
 		}
 	}
 	return out

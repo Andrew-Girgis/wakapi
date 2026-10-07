@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/muety/wakapi/models"
+	"github.com/muety/wakapi/utils"
 )
 
 type UserAgentsViewModel struct {
@@ -15,6 +16,8 @@ type UserAgentEntry struct {
 	Id                 string `json:"id"`
 	Editor             string `json:"editor"`
 	AIModel            string `json:"ai_model"`
+	AIModelVersion     string `json:"ai_model_version"`
+	AIModelComplexity  string `json:"ai_model_complexity"`
 	Os                 string `json:"os"`
 	Value              string `json:"value"`
 	Version            string `json:"version"`              // currently not implemented
@@ -28,6 +31,10 @@ func (e *UserAgentEntry) FromModel(userAgent *models.UserAgent) *UserAgentEntry 
 	e.Id = userAgent.Id
 	e.Editor = userAgent.Editor
 	e.AIModel = userAgent.AIModel
+	if parsed, err := utils.ParseUserAgent(userAgent.Value); err == nil && parsed.AIModel != "" {
+		e.AIModelVersion = parsed.AIModelVersion
+		e.AIModelComplexity = parsed.AIModelComplexity
+	}
 	e.Os = userAgent.Os
 	e.Value = userAgent.Value
 	e.FirstSeen = userAgent.FirstSeen.Format(time.RFC3339)
