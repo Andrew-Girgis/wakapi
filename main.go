@@ -91,6 +91,8 @@ var (
 	miscService            services.IMiscService
 	apiKeyService          services.IApiKeyService
 	webAuthnService        services.IWebAuthnService
+	pricingService         *services.PricingService
+	dashboardService       *services.DashboardService
 )
 
 // TODO: Refactor entire project to be structured after business domains
@@ -202,6 +204,8 @@ func main() {
 	housekeepingService = services.NewHousekeepingService(userService, heartbeatService, durationService, projectService, summaryService, aliasRepository) // can pass any repo here
 	miscService = services.NewMiscService(userService, heartbeatService, summaryService, keyValueService, mailService)
 	webAuthnService = services.NewWebAuthnService(webAuthnRepository)
+	pricingService = services.NewPricingService()
+	dashboardService = services.NewDashboardService(heartbeatService, aliasService, projectLabelService, pricingService)
 
 	if config.App.LeaderboardEnabled {
 		leaderboardService = services.NewLeaderboardService(leaderboardRepository, summaryService, userService)
@@ -231,6 +235,7 @@ func main() {
 	activityHandler := api.NewActivityApiHandler(userService, activityService)
 	badgeHandler := api.NewBadgeHandler(userService, summaryService)
 	captchaHandler := api.NewCaptchaHandler()
+	dashboardApiHandler := api.NewDashboardApiHandler(userService, dashboardService)
 
 	// Compat Handlers
 	wakatimeV1StatusBarHandler := wtV1Routes.NewStatusBarHandler(userService, summaryService)
@@ -330,6 +335,7 @@ func main() {
 	wakatimeV1UserAgentsHandler.RegisterRoutes(apiRouter)
 	shieldV1BadgeHandler.RegisterRoutes(apiRouter)
 	captchaHandler.RegisterRoutes(apiRouter)
+	dashboardApiHandler.RegisterRoutes(apiRouter)
 
 	// Static Routes
 	// https://github.com/golang/go/issues/43431

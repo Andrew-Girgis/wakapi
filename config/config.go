@@ -129,6 +129,9 @@ type appConfig struct {
 	MachineAliases map[string]string `yaml:"machine_aliases"`
 	// optional path to a price list replacing the built-in one (config/ai_prices.yml), never fetched from the network
 	AIPricesFile string `yaml:"ai_prices_file" env:"WAKAPI_AI_PRICES_FILE"`
+	// optional: read project status (lifecycle) for the dashboard from Mnemosyne instead of project labels
+	MnemosyneURL   string `yaml:"mnemosyne_url" env:"WAKAPI_MNEMOSYNE_URL"`
+	MnemosyneToken string `yaml:"mnemosyne_token" env:"WAKAPI_MNEMOSYNE_TOKEN"`
 }
 
 type securityConfig struct {
