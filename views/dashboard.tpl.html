@@ -256,6 +256,87 @@
         </div>
     </section>
 
+    <!-- Projects -->
+    <section id="projects" class="py-6 border-b d-line">
+        <div class="flex items-center justify-between">
+            <h2 class="text-2xl font-semibold">Projects</h2>
+            <button v-if="pj && pj.projects.length > 6" class="text-sm d-muted hover:underline" @click="projectsExpanded = !projectsExpanded" v-text="projectsExpanded ? 'Show top 6' : 'View all (' + pj.projects.length + ') →'"></button>
+        </div>
+        <div v-if="panels.projects.error" class="py-8 flex items-center gap-3 text-sm">
+            <span class="d-down">Couldn't load projects.</span>
+            <button class="underline d-muted" @click="load('projects')">Retry</button>
+        </div>
+        <div v-if="!pj && !panels.projects.error" class="flex flex-col gap-2 mt-4">
+            <div class="d-skeleton h-6 rounded"></div><div class="d-skeleton h-6 rounded"></div><div class="d-skeleton h-6 rounded"></div>
+        </div>
+        <div v-if="pj" class="overflow-x-auto mt-2">
+            <table class="w-full text-left min-w-[40rem]">
+                <thead class="d-muted text-sm">
+                    <tr class="border-b d-line">
+                        <th class="font-normal py-2 pr-4">Project</th>
+                        <th class="font-normal py-2 pr-4" :title="pj.status_source === 'mnemosyne' ? 'From Mnemosyne' : 'From project labels: active, paused, done'">Status</th>
+                        <th class="font-normal py-2 pr-4">Time</th>
+                        <th class="font-normal py-2 pr-4">Est. cost</th>
+                        <th class="font-normal py-2 w-[18rem]" v-text="'Activity (' + pj.days.length + ' days)'"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="p in projectRows" class="border-b d-line">
+                        <td class="py-2 pr-4 font-medium max-w-[20rem] truncate" :title="p.name" v-text="p.name"></td>
+                        <td class="py-2 pr-4 whitespace-nowrap"><span class="inline-block w-2.5 h-2.5 rounded-full mr-2" :class="{ 'bg-green-500': p.status === 'active', 'bg-amber-400': p.status === 'paused', 'bg-gray-400': p.status === 'done', 'border border-gray-600': !p.status }"></span><span v-text="statusLabel(p.status)" :class="p.status ? '' : 'd-muted'"></span></td>
+                        <td class="py-2 pr-4 d-num whitespace-nowrap" v-text="fmtDuration(p.seconds)"></td>
+                        <td class="py-2 pr-4 d-num whitespace-nowrap" :title="fmtTokens(p.tokens) + ' tokens'" v-text="fmtUSD(p.cost)"></td>
+                        <td class="py-2">
+                            <svg width="280" height="28" viewBox="0 0 280 28" class="max-w-full" aria-hidden="true"><polyline :points="sparkline(p.daily_seconds)" fill="none" stroke="#8b7cf8" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>
+                        </td>
+                    </tr>
+                    <tr v-if="!pj.projects.length"><td colspan="5" class="py-6 d-muted text-sm">No project activity in this range.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Tokens & cost by model -->
+    <section id="tokens" class="py-6 border-b d-line">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="text-2xl font-semibold">Tokens &amp; cost</h2>
+            <span class="text-sm d-muted">Estimated at API list prices from the local price file</span>
+        </div>
+        <div v-if="panels.cost.error" class="py-8 flex items-center gap-3 text-sm">
+            <span class="d-down">Couldn't load costs.</span>
+            <button class="underline d-muted" @click="load('cost')">Retry</button>
+        </div>
+        <div v-if="!cs && !panels.cost.error" class="d-skeleton h-24 rounded mt-4"></div>
+        <div v-if="cs" class="overflow-x-auto mt-2">
+            <table class="w-full text-left min-w-[40rem] d-num">
+                <thead class="d-muted text-sm">
+                    <tr class="border-b d-line">
+                        <th class="font-normal py-2 pr-4">Model</th>
+                        <th class="font-normal py-2 pr-4">New input</th>
+                        <th class="font-normal py-2 pr-4">Cached</th>
+                        <th class="font-normal py-2 pr-4">Output</th>
+                        <th class="font-normal py-2 pr-4">Billing</th>
+                        <th class="font-normal py-2 text-right">Est. cost</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="m in costRows" class="border-b d-line">
+                        <td class="py-2 pr-4" v-text="modelLabel(m)"></td>
+                        <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.input)"></td>
+                        <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.cached_input)"></td>
+                        <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.output)"></td>
+                        <td class="py-2 pr-4 d-muted" v-text="m.subscription ? 'Subscription' : 'Pay per token'"></td>
+                        <td class="py-2 text-right" :class="m.priced ? '' : 'd-muted'" v-text="m.priced ? fmtUSD(m.cost) : 'no price'"></td>
+                    </tr>
+                    <tr v-if="!costRows.length"><td colspan="6" class="py-6 d-muted text-sm">No token data in this range.</td></tr>
+                </tbody>
+            </table>
+            <div v-if="cs.coverage_notes.length" class="text-xs d-note mt-2 flex flex-col gap-0.5">
+                <span v-for="n in cs.coverage_notes">⚠ <span v-text="n"></span></span>
+            </div>
+        </div>
+    </section>
+
     <footer class="flex justify-between text-xs d-muted mt-6 mb-2">
         <span>Local data · Heartbeat activity · <span v-text="timeZone"></span></span>
         <span>Estimates in USD</span>
