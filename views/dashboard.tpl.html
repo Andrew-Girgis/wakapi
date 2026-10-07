@@ -163,7 +163,7 @@
                         <div class="flex-1 h-3.5 rounded bg-white/5 overflow-hidden">
                             <div class="h-full rounded" :style="{ width: Math.max(s.percent, 1) + '%', background: groupColors[s.group] }"></div>
                         </div>
-                        <span class="w-12 text-right d-num" v-text="Math.round(s.percent) + '%'"></span>
+                        <span class="w-12 text-right d-num" v-text="s.percent > 0 && s.percent < 1 ? '<1%' : Math.round(s.percent) + '%'"></span>
                     </div>
                 </div>
                 <div v-if="!shareRows.length" class="text-sm d-muted">No activity in this range.</div>
@@ -179,6 +179,56 @@
                 </div>
             </div>
         </div>
+    </section>
+
+    <!-- Today's timeline (machines are added next to it) -->
+    <section class="grid grid-cols-1 xl:grid-cols-3 gap-6 py-6 border-b d-line">
+        <div id="timeline" class="xl:col-span-2 min-w-0 d-card rounded-xl p-5">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="flex flex-wrap items-baseline gap-x-4">
+                    <h2 class="text-2xl font-semibold" v-text="timelineTitle"></h2>
+                    <span class="d-muted d-num" v-text="timelineSubtitle"></span>
+                </div>
+                <div class="flex items-center gap-1 text-sm">
+                    <button class="px-2 py-1 rounded hover:bg-white/10 d-muted" @click="stepTimeline(-1)" aria-label="Previous day">‹</button>
+                    <span class="d-num d-muted" v-text="timelineDate"></span>
+                    <button class="px-2 py-1 rounded hover:bg-white/10 d-muted disabled:opacity-30" :disabled="timelineIsToday" @click="stepTimeline(1)" aria-label="Next day">›</button>
+                </div>
+            </div>
+
+            <div v-if="panels.timeline.error" class="h-40 flex items-center justify-center gap-3 text-sm">
+                <span class="d-down">Couldn't load the timeline.</span>
+                <button class="underline d-muted" @click="load('timeline')">Retry</button>
+            </div>
+            <div v-if="!tl && !panels.timeline.error" class="d-skeleton h-40 rounded mt-4"></div>
+            <div v-if="tl && !panels.timeline.error && !tl.rows.length" class="h-40 flex items-center justify-center d-muted text-sm">No activity on this day.</div>
+
+            <div v-if="tl && tl.rows.length" class="mt-3">
+                <div class="grid grid-cols-[8rem_1fr] sm:grid-cols-[10rem_1fr]">
+                    <div></div>
+                    <div class="relative h-6 text-sm d-muted d-num">
+                        <span v-for="t in timelineTicks" class="absolute -translate-x-1/2" :style="{ left: t.left + '%' }" v-text="t.label"></span>
+                    </div>
+                </div>
+                <div v-for="row in timelineRows" class="grid grid-cols-[8rem_1fr] sm:grid-cols-[10rem_1fr] items-center border-t d-line">
+                    <div class="truncate pr-3 py-3 font-medium" :title="row.project + ' · ' + fmtDuration(row.seconds)" v-text="row.project || '(no project)'"></div>
+                    <div class="relative h-10">
+                        <span v-for="t in timelineTicks" class="absolute inset-y-0 border-l d-line" :style="{ left: t.left + '%' }"></span>
+                        <span v-for="seg in row.segments" class="absolute top-2.5 h-5 rounded-md" :style="segmentStyle(seg)" :title="segmentTitle(row, seg)"></span>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center justify-between gap-3 border-t d-line pt-3 text-sm">
+                    <div class="flex items-center gap-4">
+                        <span class="d-muted" title="Most agent sessions running at the same time on this day">Peak concurrency <span class="d-text font-semibold d-num" v-text="tl.peak_concurrency"></span></span>
+                        <button v-if="tl.rows.length > 6" class="underline d-muted" @click="timelineExpanded = !timelineExpanded" v-text="timelineExpanded ? 'Show fewer' : ('+' + (tl.rows.length - 6) + ' more projects')"></button>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-4">
+                        <span v-for="g in timelineGroups" class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full" :style="{ background: groupColors[g] }"></span><span v-text="g"></span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="machines-slot"></div>
     </section>
 
     <footer class="flex justify-between text-xs d-muted mt-6 mb-2">

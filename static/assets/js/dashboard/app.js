@@ -6,6 +6,7 @@ import { GROUP_COLORS, renderActivity } from './charts.js'
 const PANELS = {
     overview: () => `api/dashboard/overview?${rangeQuery()}`,
     activity: () => `api/dashboard/activity?${rangeQuery()}`,
+    timeline: () => `api/dashboard/timeline?${timelineQuery()}`,
     machines: () => 'api/dashboard/machines',
     projects: () => `api/dashboard/projects?${rangeQuery()}`,
 }
@@ -40,6 +41,26 @@ function rangeQuery() {
     if (kind === 'days') q.set('days', a)
     else if (kind === 'interval') q.set('interval', a)
     else if (kind === 'from') { q.set('from', a); q.set('to', b) }
+    if (state.project) q.set('project', state.project)
+    if (state.machine) q.set('machine', state.machine)
+    return q.toString()
+}
+
+// today's date (YYYY-MM-DD) in the user's time zone
+function todayISO() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: dashboardTimeZone }).format(new Date())
+}
+
+function shiftISO(iso, days) {
+    const d = new Date(iso + 'T12:00:00Z')
+    d.setUTCDate(d.getUTCDate() + days)
+    return d.toISOString().slice(0, 10)
+}
+
+const timelineState = PetiteVue.reactive({ date: params.get('date') || todayISO() })
+
+function timelineQuery() {
+    const q = new URLSearchParams({ date: timelineState.date })
     if (state.project) q.set('project', state.project)
     if (state.machine) q.set('machine', state.machine)
     return q.toString()
@@ -112,6 +133,58 @@ const app = {
     setActivityMode(mode) {
         this.activityMode = mode
         renderActivity(document.getElementById('activity-chart'), this.act, mode)
+    },
+    get tl() { return this.panels.timeline.data },
+    timelineExpanded: false,
+    get timelineDate() { return timelineState.date },
+    get timelineIsToday() { return timelineState.date === todayISO() },
+    get timelineTitle() { return this.timelineIsToday ? "Today's timeline" : 'Timeline' },
+    get timelineSubtitle() {
+        const d = this.tl
+        if (!d) return ''
+        const day = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(d.date + 'T00:00:00Z'))
+        return `${day} · ${this.clock(d.window_start)}–${this.clock(d.window_end)}`
+    },
+    get timelineRows() {
+        const rows = this.tl?.rows || []
+        return this.timelineExpanded ? rows : rows.slice(0, 6)
+    },
+    get timelineGroups() {
+        const seen = new Set()
+        for (const r of this.tl?.rows || []) for (const s of r.segments) seen.add(s.group)
+        return (this.tl?.groups || []).filter(g => seen.has(g))
+    },
+    get timelineTicks() {
+        const d = this.tl
+        if (!d) return []
+        const start = new Date(d.window_start).getTime(), end = new Date(d.window_end).getTime()
+        const hours = Math.max(1, Math.round((end - start) / 3600e3))
+        const step = hours <= 4 ? 1 : hours <= 12 ? 3 : 6
+        const ticks = []
+        for (let h = 0; h <= hours; h += step) {
+            const t = start + h * 3600e3
+            ticks.push({ left: ((t - start) / (end - start)) * 100, label: this.clock(new Date(t).toISOString()).slice(0, 2) })
+        }
+        return ticks
+    },
+    segmentStyle(seg) {
+        const d = this.tl
+        const start = new Date(d.window_start).getTime(), end = new Date(d.window_end).getTime()
+        const a = (new Date(seg.start).getTime() - start) / (end - start) * 100
+        const w = (new Date(seg.end).getTime() - new Date(seg.start).getTime()) / (end - start) * 100
+        return { left: a + '%', width: Math.max(w, 0.4) + '%', background: GROUP_COLORS[seg.group] || GROUP_COLORS.Other }
+    },
+    segmentTitle(row, seg) {
+        return `${row.project} · ${seg.group} · ${this.clock(seg.start)}–${this.clock(seg.end)}`
+    },
+    clock(iso) {
+        return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: dashboardTimeZone }).format(new Date(iso))
+    },
+    stepTimeline(days) {
+        const next = shiftISO(timelineState.date, days)
+        if (next > todayISO()) return
+        timelineState.date = next
+        this.load('timeline')
     },
     fmtMinutes(seconds) {
         const m = Math.round((seconds || 0) / 60)
