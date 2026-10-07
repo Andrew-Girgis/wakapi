@@ -228,7 +228,32 @@
                 </div>
             </div>
         </div>
-        <div id="machines-slot"></div>
+        <div id="machines" class="min-w-0">
+            <h2 class="text-2xl font-semibold">Machines</h2>
+            <div v-if="panels.machines.error" class="py-8 flex items-center gap-3 text-sm">
+                <span class="d-down">Couldn't load machines.</span>
+                <button class="underline d-muted" @click="load('machines')">Retry</button>
+            </div>
+            <div v-if="!mc && !panels.machines.error" class="flex flex-col gap-4 mt-4">
+                <div class="d-skeleton h-14 rounded"></div><div class="d-skeleton h-14 rounded"></div>
+            </div>
+            <div v-if="mc" class="mt-2">
+                <div v-for="m in mc.machines" class="flex items-start gap-4 py-4 border-b d-line">
+                    <span class="mt-2 inline-block w-3 h-3 rounded-full shrink-0" :class="m.live ? 'bg-green-500' : 'bg-gray-500'"></span>
+                    <div class="min-w-0 flex-1">
+                        <div class="text-lg font-semibold truncate" v-text="m.name"></div>
+                        <div class="d-muted truncate" v-text="machineLine(m)"></div>
+                    </div>
+                    <span class="flex items-center gap-2 text-sm whitespace-nowrap" :title="new Date(m.last_seen).toLocaleString()">
+                        <span class="inline-block w-2 h-2 rounded-full" :class="m.live ? 'bg-green-500' : 'bg-gray-500'"></span><span v-text="ago(m.last_seen)"></span>
+                    </span>
+                </div>
+                <div v-if="!mc.machines.length" class="py-6 d-muted text-sm">No heartbeats in the last 30 days.</div>
+                <div v-for="w in mc.warnings" class="mt-3 flex items-center gap-3 rounded-lg px-4 py-3 border border-amber-500/40 bg-amber-500/10 text-amber-300" :title="'Last heartbeat ' + new Date(w.last_seen).toLocaleString() + '. Check the WakaTime plugin or sync job on that machine.'">
+                    <span class="text-lg leading-none">⚠</span><span v-text="w.message"></span>
+                </div>
+            </div>
+        </div>
     </section>
 
     <footer class="flex justify-between text-xs d-muted mt-6 mb-2">

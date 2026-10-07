@@ -186,6 +186,24 @@ const app = {
         timelineState.date = next
         this.load('timeline')
     },
+    get mc() { return this.panels.machines.data },
+    osName(os) {
+        const o = (os || '').toLowerCase()
+        return o === 'macos' || o === 'darwin' ? 'macOS' : o === 'linux' ? 'Linux' : o === 'windows' ? 'Windows' : os || 'unknown OS'
+    },
+    machineLine(m) {
+        if (m.live && m.active_agent) return `${this.osName(m.os)} · ${m.active_agent} active`
+        const last = (m.agents || [])[0]
+        return last ? `${this.osName(m.os)} · last: ${last.editor}` : this.osName(m.os)
+    },
+    ago(iso) {
+        const now = this.mc ? new Date(this.mc.now).getTime() : Date.now()
+        const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000))
+        if (s < 60) return `${s}s ago`
+        if (s < 3600) return `${Math.floor(s / 60)}m ago`
+        if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+        return `${Math.floor(s / 86400)}d ago`
+    },
     fmtMinutes(seconds) {
         const m = Math.round((seconds || 0) / 60)
         return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`
@@ -263,6 +281,7 @@ const app = {
             if (e.detail.name === 'activity') setTimeout(() => renderActivity(document.getElementById('activity-chart'), e.detail.data, this.activityMode), 0)
         })
         this.reloadAll()
+        setInterval(() => this.load('machines'), 60_000) // keep "live" and "last seen" current
     },
 }
 
