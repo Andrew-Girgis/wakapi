@@ -197,6 +197,17 @@ func (srv *DashboardService) load(user *models.User, from, to time.Time, filters
 	return data, nil
 }
 
+// ClampFrom moves from forward to the start of the day of the user's first heartbeat, so "all time" ranges
+// (which Wakapi resolves from the Unix epoch) start at the user's real history.
+func (srv *DashboardService) ClampFrom(user *models.User, from time.Time) time.Time {
+	first, err := srv.heartbeatSrvc.GetFirstByUser(user)
+	if err != nil || first.IsZero() || !first.After(from) {
+		return from
+	}
+	f := first.In(user.TZ())
+	return time.Date(f.Year(), f.Month(), f.Day(), 0, 0, 0, 0, user.TZ())
+}
+
 func (srv *DashboardService) machineName(user *models.User, machine string) string {
 	if name, err := srv.aliasSrvc.GetAliasOrDefault(user.ID, models.SummaryMachine, machine); err == nil {
 		return name

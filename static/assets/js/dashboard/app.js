@@ -226,6 +226,7 @@ const app = {
         return `${Math.floor(s / 86400)}d ago`
     },
     fmtMinutes(seconds) {
+        if (seconds > 0 && seconds < 30) return '<1m'
         const m = Math.round((seconds || 0) / 60)
         return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`
     },
