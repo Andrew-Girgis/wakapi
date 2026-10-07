@@ -18,9 +18,9 @@ has parity, then remains as a fallback.
 | Charts | Chart.js 4 (already vendored) — stacked bars, floating horizontal bars for the timeline | Every chart in the mockup is a bar or a sparkline. |
 | Sparklines | Inline SVG `<polyline>` built in JS (~20 lines) | Dozens of tiny charts; cheaper and crisper than Chart.js instances. |
 | Icons | Iconify (already vendored) | — |
-| Data | Durations (existing) for time; new heartbeat queries for tokens, sessions, liveness | Durations already carry project, editor, category, machine, ai_model. |
+| Data | Time computed from heartbeats (not Wakapi durations); new heartbeat queries for tokens, sessions, liveness | Upstream durations drop agent "thinking time" heartbeats (`type=app`, `category=ai coding`, upstream #964), which are most of an agent-driven week: classic page shows 4 h 47 m for 7 days where WakaTime shows 23 h 38 m. |
 | Cost | Local price file, no network lookups | Self-hosted rule. |
-| Project status | Optional Mnemosyne integration (`/v1/projects`), hidden when not configured | Mnemosyne owns project lifecycle. |
+| Project status | Wakapi project labels (`status:active`, `status:paused`, `status:done`); optional Mnemosyne integration behind a config flag | Keeps the fork self-contained (goal rule, 7 Oct 2026). |
 
 Rejected: React/Svelte SPA (second toolchain, diverges from upstream style), D3 (not needed for bars),
 Grafana (cannot read Wakapi's model without a datasource plugin; harder to make it look like the mockup).
@@ -118,6 +118,6 @@ Acceptance: `?interval=any` and existing query params still work.
 ## 7. Decisions from review (7 Oct 2026)
 
 1. **WakaTime relay:** keep it on until this page reaches parity with the WakaTime dashboard, then turn it off.
-2. **Project status:** read from Mnemosyne (`/v1/projects`); the column hides when Mnemosyne is not configured.
+2. **Project status:** superseded by the build goal: Wakapi project labels by default, Mnemosyne optional behind a config flag.
 3. **Agent groups:** Claude Code, Codex, Pi, OpenCode, Other — each with its own colour.
 4. **Prices:** filled once by hand from the providers' public price pages into `ai_prices.yml`, checked by the user.

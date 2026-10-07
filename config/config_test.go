@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/oauth2-proxy/mockoidc"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -333,4 +334,16 @@ func (suite *ConfigTestSuite) TestIsImportHostWhitelisted() {
 			suite.Equal(tc.expected, cfg.App.IsImportHostWhitelisted(tc.host))
 		})
 	}
+}
+
+func TestAppConfig_MachineName(t *testing.T) {
+	c := &appConfig{MachineAliases: map[string]string{"Mac": "Pythia", "Pythia.local": "Pythia"}}
+	assert.Equal(t, "Pythia", c.MachineName("Mac"))
+	assert.Equal(t, "Pythia", c.MachineName("pythia.LOCAL"))
+	assert.Equal(t, "omphalos", c.MachineName("omphalos"))
+}
+
+func TestLoad_DefaultMachineAliases(t *testing.T) {
+	cfg := Load("../config.default.yml", "")
+	assert.Equal(t, "Pythia", cfg.App.MachineName("Mac.localdomain"))
 }

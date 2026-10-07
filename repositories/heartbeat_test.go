@@ -122,6 +122,7 @@ func (suite *HeartbeatRepositoryTestSuite) TestHeartbeatRepository_AICachedInput
 func (suite *HeartbeatRepositoryTestSuite) TestHeartbeatRepository_AIModelVersionColumns() {
 	assert.True(suite.T(), suite.TestDb.Migrator().HasColumn(&models.Heartbeat{}, "ai_model_version"))
 	assert.True(suite.T(), suite.TestDb.Migrator().HasColumn(&models.Heartbeat{}, "ai_model_complexity"))
+	assert.True(suite.T(), suite.TestDb.Migrator().HasColumn(&models.Heartbeat{}, "ai_subscription_plan"))
 }
 
 func (suite *HeartbeatRepositoryTestSuite) streamEntitiesExcluding(exclusions []models.HeartbeatExclusionFilter) []string {

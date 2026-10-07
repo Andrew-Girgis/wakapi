@@ -70,3 +70,22 @@ func (suite *AliasServiceTestSuite) TestAliasService_GetAliasOrDefault() {
 	assert.Equal(suite.T(), "Telepush-mobile", result6) // not really scope of this test, but nevertheless: language shall always be capitaliized
 	assert.Nil(suite.T(), err6)
 }
+
+func (suite *AliasServiceTestSuite) TestAliasService_GetAliasOrDefault_ConfiguredMachineNames() {
+	cfg := config.Empty()
+	cfg.App.MachineAliases = map[string]string{"Mac": "Pythia", "Pythia.local": "Pythia"}
+	config.Set(cfg)
+	defer config.Set(config.Empty())
+
+	sut := NewAliasService(suite.AliasRepository)
+
+	result1, _ := sut.GetAliasOrDefault(suite.TestUserId, models.SummaryMachine, "Mac")
+	result2, _ := sut.GetAliasOrDefault(suite.TestUserId, models.SummaryMachine, "Pythia.local")
+	result3, _ := sut.GetAliasOrDefault(suite.TestUserId, models.SummaryMachine, "omphalos")
+	result4, _ := sut.GetAliasOrDefault(suite.TestUserId, models.SummaryProject, "Mac") // only machines are mapped
+
+	assert.Equal(suite.T(), "Pythia", result1)
+	assert.Equal(suite.T(), "Pythia", result2)
+	assert.Equal(suite.T(), "omphalos", result3)
+	assert.Equal(suite.T(), "Mac", result4)
+}

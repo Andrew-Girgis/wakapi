@@ -125,6 +125,10 @@ type appConfig struct {
 	CustomLanguages           map[string]string            `yaml:"custom_languages"`
 	CanonicalLanguageNames    map[string]string            `yaml:"canonical_language_names"` // lower case, compacted representation -> canonical name
 	Colors                    map[string]map[string]string `yaml:"-"`
+	// hostname -> machine name, so that one machine reporting several hostnames (e.g. "Mac", "Pythia.local") shows up once
+	MachineAliases map[string]string `yaml:"machine_aliases"`
+	// optional path to a price list replacing the built-in one (config/ai_prices.yml), never fetched from the network
+	AIPricesFile string `yaml:"ai_prices_file" env:"WAKAPI_AI_PRICES_FILE"`
 }
 
 type securityConfig struct {
@@ -314,6 +318,16 @@ func (c *Config) UseTLS() bool {
 
 func (c *appConfig) GetCustomLanguages() map[string]string {
 	return utils.CloneStringMap(c.CustomLanguages, false)
+}
+
+// MachineName returns the configured machine name for a hostname (case-insensitive), or the hostname itself.
+func (c *appConfig) MachineName(hostname string) string {
+	for k, v := range c.MachineAliases {
+		if strings.EqualFold(k, hostname) {
+			return v
+		}
+	}
+	return hostname
 }
 
 func (c *appConfig) GetCanonicalLanguageNames() map[string]string {

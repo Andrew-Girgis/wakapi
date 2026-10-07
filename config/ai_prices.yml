@@ -1,0 +1,35 @@
+# AI model list prices in USD per 1M tokens (standard tier, short context, global routing).
+# Used to estimate the API-equivalent value of AI coding activity. Wakapi never fetches prices from the network;
+# replace this list with your own file via app.ai_prices_file / WAKAPI_AI_PRICES_FILE.
+#
+# Filled by hand on 2026-10-07 from:
+#   Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
+#   OpenAI:    https://developers.openai.com/api/docs/pricing
+#
+# family:   the heartbeat's ai_model, case-insensitive (e.g. "Opus", "Gpt")
+# versions: the heartbeat's ai_model_version values this price applies to (e.g. "5-5" for opus/5-5)
+# input:        new input tokens (wakatime-cli also counts cache writes here; they cost more on Anthropic models)
+# cached_input: cache read tokens (ai_cached_input_tokens)
+#
+# Models without an entry (e.g. Grok 4.6, MiMo 2 Pro, GLM 5.2, GPT 5.2 Codex) are shown as "no price".
+
+models:
+  # Anthropic
+  - { family: opus, versions: ["5-5", "5.5"], input: 4.00, cached_input: 0.20, output: 20.00 }
+  - { family: opus, versions: ["5"], input: 5.00, cached_input: 0.50, output: 25.00 }
+  - { family: opus, versions: ["4-8", "4.8", "4-7", "4.7", "4-6", "4.6", "4-5", "4.5"], input: 5.00, cached_input: 0.50, output: 25.00 }
+  - { family: sonnet, versions: ["5-5", "5.5", "5"], input: 2.00, cached_input: 0.20, output: 10.00 }
+  - { family: sonnet, versions: ["4-6", "4.6", "4-5", "4.5"], input: 3.00, cached_input: 0.30, output: 15.00 }
+  - { family: haiku, versions: ["4-5", "4.5", "4-5-20251001"], input: 1.00, cached_input: 0.10, output: 5.00 }
+  - { family: fable, versions: ["5"], input: 10.00, cached_input: 1.00, output: 50.00 }
+  - { family: claude-fable, versions: ["5"], input: 10.00, cached_input: 1.00, output: 50.00 }
+  - { family: fable, versions: ["5-1", "5.1"], input: 10.00, cached_input: 0.25, output: 50.00 }
+
+  # OpenAI
+  - { family: gpt, versions: ["6-astra"], input: 10.00, cached_input: 1.00, output: 50.00 }
+  - { family: gpt, versions: ["6-sol"], input: 2.00, cached_input: 0.20, output: 10.00 }
+  - { family: gpt, versions: ["6-luna"], input: 0.10, cached_input: 0.01, output: 0.50 }
+  - { family: gpt, versions: ["5.6-sol"], input: 4.00, cached_input: 0.40, output: 20.00 }
+  - { family: gpt, versions: ["5.6-luna"], input: 0.20, cached_input: 0.02, output: 1.20 }
+  - { family: gpt, versions: ["5.5"], input: 5.00, cached_input: 0.50, output: 30.00 }
+  - { family: gpt, versions: ["5.4"], input: 2.50, cached_input: 0.25, output: 15.00 }

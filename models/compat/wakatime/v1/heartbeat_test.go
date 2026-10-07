@@ -17,6 +17,7 @@ func TestHeartbeatsToCompat_AIFields(t *testing.T) {
 		AIInputTokens:       1986,
 		AICachedInputTokens: 90512,
 		AIOutputTokens:      526,
+		AISubscriptionPlan:  "max",
 	}}
 
 	out := HeartbeatsToCompat(heartbeats)
@@ -24,4 +25,5 @@ func TestHeartbeatsToCompat_AIFields(t *testing.T) {
 	assert.Equal(t, 1986, out[0].AIInputTokens)
 	assert.Equal(t, 90512, out[0].AICachedInputTokens)
 	assert.Equal(t, 526, out[0].AIOutputTokens)
+	assert.Equal(t, "max", out[0].AISubscriptionPlan)
 }

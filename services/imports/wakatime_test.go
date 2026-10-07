@@ -184,6 +184,7 @@ func (suite *WakatimeImporterTestSuite) TestMapHeartbeat_KeepsAIFields() {
 		AIPromptLength:      120,
 		AILineChanges:       14,
 		HumanLineChanges:    2,
+		AISubscriptionPlan:  "max",
 	}
 	userAgents := map[string]*wakatime.UserAgentEntry{"ua1": {Id: "ua1", Value: "wakatime/v2.26.15 (darwin-27.0.0-arm64) go1.26.8 opus/5-5 claude-code/2.1.284", Editor: "claude-code", AIModel: "opus"}}
 	machines := map[string]*wakatime.MachineEntry{"m1": {Id: "m1", Value: "pythia"}}
@@ -197,6 +198,7 @@ func (suite *WakatimeImporterTestSuite) TestMapHeartbeat_KeepsAIFields() {
 	suite.Equal(120, hb.AIPromptLength)
 	suite.Equal(14, hb.AILineChanges)
 	suite.Equal(2, hb.HumanLineChanges)
+	suite.Equal("max", hb.AISubscriptionPlan)
 	suite.Equal("opus", hb.AIModel)
 	suite.Equal("pythia", hb.Machine)
 }
