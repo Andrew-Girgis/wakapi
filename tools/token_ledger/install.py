@@ -17,7 +17,7 @@ from .gate import DAY_MS
 
 
 def render_jobs(platform: str, python: str, release: Path, machine: str, state: Path,
-                since: int, first_day: int, send: bool) -> dict[str,bytes]:
+                since: int, first_day: int, send: bool, wait_host: str = '') -> dict[str,bytes]:
     queue=state/'live/queue.sqlite3';reports=state/'observations'
     collector=[python,'-m','tools.token_ledger.collect','--machine',machine,'--since-ms',str(since),'--queue',str(queue)]
     daily=[python,'-m','tools.token_ledger.daily','--machine',machine,'--first-day-ms',str(first_day),
@@ -44,11 +44,21 @@ def render_jobs(platform: str, python: str, release: Path, machine: str, state: 
         # These are systemd argument quotes, not a shell command.
         command=' '.join(shlex.quote(arg) for arg in args)
         jobs[unit+'.service']=(f'[Unit]\nDescription=Wakapi token ledger {name}\n\n[Service]\nType=oneshot\n'
-            f'WorkingDirectory={shlex.quote(str(release))}\nExecStart={command}\nUMask=0077\nSuccessExitStatus=75\n').encode()
+            f'WorkingDirectory={shlex.quote(str(release))}\nExecStart={command}\nUMask=0077\nSuccessExitStatus=75\n'
+            +(wait_for_host(wait_host) if name=='observation' and wait_host else '')).encode()
         schedule='OnBootSec=3min\nOnUnitActiveSec=5min\n' if name=='collector' else 'OnCalendar=*-*-* 07:15:00 UTC\nPersistent=true\n'
         jobs[unit+'.timer']=(f'[Unit]\nDescription=Wakapi token ledger {name} schedule\n\n[Timer]\n{schedule}'
             f'Unit={unit}.service\n\n[Install]\nWantedBy=timers.target\n').encode()
     return jobs
+
+
+def wait_for_host(host: str) -> str:
+    """The catch-up run after boot starts before DNS works. Wait for the API host instead of
+    restarting: a failed observation writes a failed report, and the gate counts every one."""
+    if not host.replace('.','').replace('-','').isalnum():
+        raise ValueError('wait host must be a plain host name')
+    return (f"ExecStartPre=/bin/sh -c 'for i in $$(seq 120); do getent hosts {host} >/dev/null && exit 0; "
+            "sleep 5; done; exit 1'\nTimeoutStartSec=15min\n")
 
 
 def main() -> int:
@@ -60,6 +70,7 @@ def main() -> int:
     cli.add_argument('--output-dir',type=Path)
     cli.add_argument('--send',action='store_true')
     cli.add_argument('--enable',action='store_true')
+    cli.add_argument('--wait-for-host',default='',help='Linux: observation waits for this API host to resolve')
     args=cli.parse_args()
     if args.since_ms<=0 or args.first_day_ms%DAY_MS or args.first_day_ms<args.since_ms:
         cli.error('audited cutoff and subsequent UTC midnight required')
@@ -67,7 +78,8 @@ def main() -> int:
     state=args.state_dir.resolve();state.mkdir(parents=True,exist_ok=True,mode=0o700);os.chmod(state,0o700)
     output=args.output_dir or (Path.home()/'Library/LaunchAgents' if sys.platform=='darwin' else Path.home()/'.config/systemd/user')
     output.mkdir(parents=True,exist_ok=True)
-    jobs=render_jobs(sys.platform,sys.executable,release,args.machine,state,args.since_ms,args.first_day_ms,args.send)
+    jobs=render_jobs(sys.platform,sys.executable,release,args.machine,state,args.since_ms,args.first_day_ms,args.send,
+                     args.wait_for_host)
     for name,body in jobs.items():
         path=output/name
         if path.exists() and path.read_bytes()!=body:
