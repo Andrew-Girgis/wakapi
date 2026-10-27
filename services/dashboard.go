@@ -272,7 +272,7 @@ func (srv *DashboardService) Overview(user *models.User, from, to time.Time, fil
 		legacy := out.Tokens
 		out.LegacyTokens = &legacy
 		out.Tokens = ledgerTotals(rows)
-		out.Cost = srv.ledgerCost(rows)
+		out.Cost = srv.ledgerCostAttributed(user, rows)
 		out.CoverageNotes = srv.ledgerNotes(user, rows)
 	}
 	return out, nil
@@ -344,7 +344,7 @@ func (srv *DashboardService) cost(heartbeats []*models.Heartbeat) view.Dashboard
 		}
 	}
 
-	c := view.DashboardCost{Currency: "USD", Available: true, BillingAttributionKnown: true, PricingBasis: "Legacy heartbeat estimate at configured rates; not billed spend", ByModel: []view.DashboardModelCost{}}
+	c := view.DashboardCost{Currency: "USD", Available: true, BillingAttributionKnown: true, Attribution: "legacy", PricingBasis: "Legacy heartbeat estimate at configured rates; not billed spend", ByModel: []view.DashboardModelCost{}}
 	for _, mc := range byKey {
 		mc.Tokens = finishTokens(mc.Tokens)
 		mc.Cost, mc.Priced = srv.pricing.Cost(mc.Model, mc.Version, mc.Tokens.Input, mc.Tokens.CachedInput, mc.Tokens.Output)
@@ -415,7 +415,7 @@ func (srv *DashboardService) Cost(user *models.User, from, to time.Time, filters
 		if err != nil {
 			return nil, err
 		}
-		return &view.DashboardCostResponse{DashboardAccounting: srv.accounting(), Range: view.DashboardRange{From: from, To: to}, Cost: srv.ledgerCost(rows), CoverageNotes: srv.ledgerNotes(user, rows)}, nil
+		return &view.DashboardCostResponse{DashboardAccounting: srv.accounting(), Range: view.DashboardRange{From: from, To: to}, Cost: srv.ledgerCostAttributed(user, rows), CoverageNotes: srv.ledgerNotes(user, rows)}, nil
 	}
 	data, err := srv.load(user, from, to, filters)
 	if err != nil {

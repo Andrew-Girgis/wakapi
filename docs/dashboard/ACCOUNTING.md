@@ -31,6 +31,13 @@
   from a CLI name. Currency is explicitly USD and values are estimated equivalent
   API list value at configured rates, **not bills or historical paid spend**.
   See [LEDGER_PRICING.md](LEDGER_PRICING.md) for rate/TTL rules and validation.
+- **Recorded plan (amended 27 Oct 2026, user-approved).** A ledger event is shown as
+  "recorded plan X" only when every agent heartbeat of its own agent group, in every
+  session that contains it (copied events: all session references), carries the same
+  non-empty `ai_subscription_plan` X. Empty, mixed or missing plans, sessions without
+  heartbeats and WakaTime fallback events are "plan unknown". The lookup has no time
+  bound, so attribution never depends on the selected range. It is what the agent
+  recorded, not a bill: never "covered by subscription", never "pay per token".
 - Background source/queue/receipt reconciliation remains enabled independently of
   display promotion. Seven days is a reliability milestone, not a prerequisite
   for a clearly provisional display. A passing display test never certifies missing

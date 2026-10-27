@@ -28,9 +28,11 @@ rates were guessed. `WAKAPI_AI_PRICES_FILE` can supply an explicit replacement.
 - Each model and the overall cost reports `priced_tokens` + `unpriced_tokens`
   equal to the corresponding accounted total. Individual values are rounded to
   cents for display; summed unrounded values determine the overall estimate.
-- Subscription/pay-per-token attribution is **unknown** in the ledger, not inferred
-  from a CLI, model, machine, or absence of a plan. The old heartbeat estimate is
-  accessible only through explicit heartbeats display mode.
+- Billing is never inferred from a CLI, model, machine, or absence of a plan. Since
+  27 Oct 2026 cost rows are split by the plan agents *recorded* on their sessions'
+  heartbeats (strict rule in [ACCOUNTING.md](ACCOUNTING.md)); everything else is
+  "plan unknown", never pay-per-token. The old heartbeat estimate is accessible only
+  through explicit heartbeats display mode.
 
 ## Validation and deployment (12–13 Oct 2026)
 

@@ -227,6 +227,11 @@ const app = {
     get allCostRows() { return (this.cs?.cost.by_model || []).filter(m => m.tokens.total > 0) },
     get costRows() { return this.modelsExpanded ? this.allCostRows : this.allCostRows.slice(0, 8) },
     modelLabel(m) { return m.model ? `${m.model} ${m.version}`.trim() : '(no model)' },
+    // ledger: the plan recorded on the session's heartbeats, never "pay per token"; heartbeats: legacy split
+    planLabel(m) {
+        if (this.cs.cost.attribution === 'recorded_plan') return m.recorded_plan || 'Plan unknown'
+        return this.cs.cost.billing_attribution_known ? (m.subscription ? 'Subscription' : 'Pay per token') : 'Unknown'
+    },
 
     get mc() { return this.panels.machines.data },
     osName(os) {

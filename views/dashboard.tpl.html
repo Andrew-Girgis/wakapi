@@ -121,7 +121,8 @@
                 <div v-if="ov" class="text-4xl font-semibold d-num mt-1"><span v-text="ov.cost.available ? fmtUSD(ov.cost.estimated_api_value) : 'Unavailable'"></span></div>
                 <div v-else class="d-skeleton h-10 w-36 rounded mt-1"></div>
                 <div v-if="ov && !ov.cost.available" class="text-sm d-muted mt-1" v-text="ov.cost.pricing_basis"></div>
-                <div v-if="ov && ov.cost.available && !ov.cost.billing_attribution_known" class="text-sm d-muted mt-1" :title="ov.cost.pricing_basis">Partial configured-rate value · not billed spend<br>Subscription/payment attribution unknown</div>
+                <div v-if="ov && ov.cost.available && ov.cost.attribution === 'recorded_plan'" class="text-sm d-muted mt-1 d-num" :title="ov.cost.pricing_basis + ' Plan = the subscription plan the agent recorded on every heartbeat of the session; not a bill.'">Partial configured-rate value · not billed spend<br><span v-text="fmtUSD(ov.cost.recorded_plan_value)"></span> with a recorded plan · <span v-text="fmtUSD(ov.cost.plan_unknown_value)"></span> plan unknown</div>
+                <div v-if="ov && ov.cost.available && !ov.cost.billing_attribution_known && ov.cost.attribution !== 'recorded_plan'" class="text-sm d-muted mt-1" :title="ov.cost.pricing_basis">Partial configured-rate value · not billed spend<br>Subscription/payment attribution unknown</div>
                 <div v-if="ov && ov.cost.available && ov.cost.billing_attribution_known" class="text-sm d-muted mt-1 d-num">
                     <span v-if="ov.cost.subscription_value > 0">Subscription usage <span v-text="fmtUSD(ov.cost.subscription_value)"></span> · not billed spend</span>
                     <span v-else>At API list prices · no subscription usage recorded</span>
@@ -344,7 +345,7 @@
                         <th class="font-normal py-2 pr-4">Cache write</th>
                         <th class="font-normal py-2 pr-4">Unknown input</th>
                         <th class="font-normal py-2 pr-4">Output</th>
-                        <th class="font-normal py-2 pr-4">Payment attribution</th>
+                        <th class="font-normal py-2 pr-4" v-text="cs.cost.attribution === 'recorded_plan' ? 'Recorded plan' : 'Payment attribution'"></th>
                         <th class="font-normal py-2 text-right">Est. cost</th>
                     </tr>
                 </thead>
@@ -356,7 +357,7 @@
                         <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.cache_write)"></td>
                         <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.unknown_input)"></td>
                         <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.output)"></td>
-                        <td class="py-2 pr-4 d-muted" v-text="cs.cost.billing_attribution_known ? (m.subscription ? 'Subscription' : 'Pay per token') : 'Unknown'"></td>
+                        <td class="py-2 pr-4 d-muted" v-text="planLabel(m)"></td>
                         <td class="py-2 text-right" :class="m.priced ? '' : 'd-muted'">
                             <span v-text="m.priced ? fmtUSD(m.cost) : 'no price'"></span>
                             <div v-if="m.unpriced_tokens > 0" class="text-xs d-note"><span v-text="fmtTokens(m.unpriced_tokens)"></span> unpriced</div>
