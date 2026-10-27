@@ -10,23 +10,29 @@
 # versions: the heartbeat's ai_model_version values this price applies to (e.g. "5-5" for opus/5-5)
 # input:        new input tokens (wakatime-cli also counts cache writes here; they cost more on Anthropic models)
 # cached_input: cache read tokens (ai_cached_input_tokens)
+# cache_write_5m / cache_write_1h: optional cache-write rates (token ledger only), copied per model from the price page,
+#               never derived from a multiplier. Used only when the event has a complete 5m/1h split.
+#               Added 2026-10-27 from the Anthropic page, confirmed by the user. Duplicate rows for one model
+#               (e.g. fable / claude-fable) must carry identical rates, or the model is left unpriced.
 #
-# Models without an entry (e.g. Grok 4.6, MiMo 2 Pro, GLM 5.2, GPT 5.2 Codex) are shown as "no price".
+# Models without an entry (e.g. Grok 4.6, MiMo 2 Pro, GLM 5.2, GPT 5.2 Codex, codex-auto-review) are shown as "no price".
 
 models:
   # Anthropic
-  - { family: opus, versions: ["5-5", "5.5"], input: 4.00, cached_input: 0.20, output: 20.00 }
-  - { family: opus, versions: ["5"], input: 5.00, cached_input: 0.50, output: 25.00 }
-  - { family: opus, versions: ["4-8", "4.8", "4-7", "4.7", "4-6", "4.6", "4-5", "4.5"], input: 5.00, cached_input: 0.50, output: 25.00 }
-  - { family: sonnet, versions: ["5-5", "5.5", "5"], input: 2.00, cached_input: 0.20, output: 10.00 }
-  - { family: sonnet, versions: ["4-6", "4.6", "4-5", "4.5"], input: 3.00, cached_input: 0.30, output: 15.00 }
-  - { family: haiku, versions: ["4-5", "4.5", "4-5-20251001"], input: 1.00, cached_input: 0.10, output: 5.00 }
-  - { family: fable, versions: ["5"], input: 10.00, cached_input: 1.00, output: 50.00 }
-  - { family: claude-fable, versions: ["5"], input: 10.00, cached_input: 1.00, output: 50.00 }
-  - { family: fable, versions: ["5-1", "5.1"], input: 10.00, cached_input: 0.25, output: 50.00 }
+  - { family: opus, versions: ["5-5", "5.5"], input: 4.00, cached_input: 0.20, output: 20.00, cache_write_5m: 5.00, cache_write_1h: 8.00 }
+  - { family: opus, versions: ["5"], input: 5.00, cached_input: 0.50, output: 25.00, cache_write_5m: 6.25, cache_write_1h: 10.00 }
+  - { family: opus, versions: ["4-8", "4.8", "4-7", "4.7", "4-6", "4.6", "4-5", "4.5"], input: 5.00, cached_input: 0.50, output: 25.00, cache_write_5m: 6.25, cache_write_1h: 10.00 }
+  - { family: sonnet, versions: ["5-5", "5.5"], input: 2.00, cached_input: 0.10, output: 10.00, cache_write_5m: 2.50, cache_write_1h: 4.00 }
+  - { family: sonnet, versions: ["5"], input: 2.00, cached_input: 0.20, output: 10.00, cache_write_5m: 2.50, cache_write_1h: 4.00 }
+  - { family: sonnet, versions: ["4-6", "4.6", "4-5", "4.5"], input: 3.00, cached_input: 0.30, output: 15.00, cache_write_5m: 3.75, cache_write_1h: 6.00 }
+  - { family: haiku, versions: ["4-5", "4.5", "4-5-20251001"], input: 1.00, cached_input: 0.10, output: 5.00, cache_write_5m: 1.25, cache_write_1h: 2.00 }
+  - { family: fable, versions: ["5"], input: 10.00, cached_input: 1.00, output: 50.00, cache_write_5m: 12.50, cache_write_1h: 20.00 }
+  - { family: claude-fable, versions: ["5"], input: 10.00, cached_input: 1.00, output: 50.00, cache_write_5m: 12.50, cache_write_1h: 20.00 }
+  - { family: fable, versions: ["5-1", "5.1"], input: 10.00, cached_input: 0.25, output: 50.00, cache_write_5m: 12.50, cache_write_1h: 20.00 }
 
   # OpenAI
   - { family: gpt, versions: ["6-astra"], input: 10.00, cached_input: 1.00, output: 50.00 }
+  - { family: gpt, versions: ["6.1-sol", "6-1-sol"], input: 2.00, cached_input: 0.10, output: 10.00 }  # added 2026-10-27, user-confirmed
   - { family: gpt, versions: ["6-sol"], input: 2.00, cached_input: 0.20, output: 10.00 }
   - { family: gpt, versions: ["6-luna"], input: 0.10, cached_input: 0.01, output: 0.50 }
   - { family: gpt, versions: ["5.6-sol"], input: 4.00, cached_input: 0.40, output: 20.00 }

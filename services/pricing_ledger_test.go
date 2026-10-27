@@ -93,3 +93,37 @@ func TestLedgerPricing_PartialTotalsReconcileAndBillingStaysUnknown(t *testing.T
 	}
 	require.Equal(t, ledgerTotals(rows).Total, accounted)
 }
+
+// The bundled rate book: every Anthropic model prices complete cache-write TTL splits, duplicate rows
+// (fable / claude-fable) agree, and the confirmed rates of 27 Oct 2026 are the ones in effect.
+func TestLedgerPricing_BundledRateBook(t *testing.T) {
+	prices, err := config.LoadAIPrices("")
+	require.NoError(t, err)
+	s := NewPricingServiceWith(prices)
+	split := `{"cache_creation":{"ephemeral_5m_input_tokens":1000000,"ephemeral_1h_input_tokens":1000000}}`
+	for model, want := range map[string][2]float64{
+		"claude-opus-5-5":   {5, 8},
+		"claude-opus-4-8":   {6.25, 10},
+		"claude-sonnet-5-5": {2.5, 4},
+		"claude-sonnet-4-6": {3.75, 6},
+		"claude-haiku-4-5":  {1.25, 2},
+		"claude-fable-5":    {12.5, 20},
+		"fable 5":           {12.5, 20},
+		"claude-fable-5-1":  {12.5, 20},
+	} {
+		value, priced := s.LedgerEventCost(models.TokenUsageEvent{Model: model, CacheWriteTokens: 2000000, RawUsageJSON: split})
+		require.Equal(t, int64(2000000), priced, model)
+		require.InDelta(t, want[0]+want[1], value, 1e-9, model)
+	}
+	sonnet, ok := s.LookupLedger("claude-sonnet-5-5")
+	require.True(t, ok)
+	require.Equal(t, .10, sonnet.CachedInput)
+	sonnet5, ok := s.LookupLedger("claude-sonnet-5")
+	require.True(t, ok)
+	require.Equal(t, .20, sonnet5.CachedInput)
+	sol, ok := s.LookupLedger("gpt-6.1-sol")
+	require.True(t, ok)
+	require.Equal(t, [3]float64{2, .1, 10}, [3]float64{sol.Input, sol.CachedInput, sol.Output})
+	_, ok = s.LookupLedger("codex-auto-review")
+	require.False(t, ok)
+}
