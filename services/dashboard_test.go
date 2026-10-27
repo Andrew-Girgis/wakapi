@@ -234,6 +234,14 @@ func TestAgentGroup(t *testing.T) {
 	assert.Equal(t, GroupOther, AgentGroup("Zed"))
 }
 
+func TestIsAgentHeartbeat(t *testing.T) {
+	assert.True(t, isAgentHeartbeat(&models.Heartbeat{Editor: "Claude", Category: "ai coding"}))
+	assert.True(t, isAgentHeartbeat(&models.Heartbeat{Editor: "Pi-coding-agent", Category: "coding"}))
+	assert.True(t, isAgentHeartbeat(&models.Heartbeat{Editor: "Pi", Category: ""}))
+	assert.False(t, isAgentHeartbeat(&models.Heartbeat{Editor: "Claude", Category: "coding"}))
+	assert.False(t, isAgentHeartbeat(&models.Heartbeat{Editor: "Vscode", Category: "coding"}))
+}
+
 func TestCoverageNotes(t *testing.T) {
 	assert.Empty(t, coverageNotes(time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)))
 	assert.Len(t, coverageNotes(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)), 1)

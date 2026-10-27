@@ -127,8 +127,9 @@ func AgentTool(editor string) string {
 	return ""
 }
 
+// Pi's WakaTime plugin sends its file edits as "coding" (or no category), not "ai coding"; they are agent work too.
 func isAgentHeartbeat(h *models.Heartbeat) bool {
-	return strings.EqualFold(h.Category, models.HeartbeatCategoryAiCoding)
+	return strings.EqualFold(h.Category, models.HeartbeatCategoryAiCoding) || AgentGroup(h.Editor) == GroupPi
 }
 
 // load returns the user's heartbeats in [from, to) after filters, and their activity spans.
