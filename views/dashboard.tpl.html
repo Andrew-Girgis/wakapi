@@ -64,8 +64,8 @@
 
     <!-- Tabs + filters -->
     <nav class="flex flex-wrap items-end justify-between gap-4 mt-6 border-b d-line">
-        <div class="flex gap-6 text-base overflow-x-auto">
-            <a v-for="t in tabs" :key="t.id" :href="'#' + t.id" class="d-tab pb-3 whitespace-nowrap" :class="{ active: tab === t.id }" @click="tab = t.id" v-text="t.label"></a>
+        <div class="flex gap-4 sm:gap-6 text-sm sm:text-base overflow-x-auto">
+            <a v-for="t in tabs" :key="t.id" :href="'#' + t.id" class="d-tab pb-3 whitespace-nowrap" :class="{ active: tab === t.id }" @click="setTab(t.id)" v-text="t.label"></a>
         </div>
         <div class="flex flex-wrap gap-3 pb-3 text-sm">
             <select class="d-select rounded-lg px-3 py-2 max-w-[14rem]" v-model="project" @change="applyFilters" aria-label="Project filter">
@@ -76,6 +76,10 @@
                 <option value="">All machines</option>
                 <option v-for="m in machineOptions" :value="m" v-text="m"></option>
             </select>
+            <select class="d-select rounded-lg px-3 py-2" v-model="agent" @change="applyFilters" aria-label="Agent filter" title="Only this agent's time and tokens; your own time and WakaTime fallback tokens are excluded">
+                <option value="">All agents</option>
+                <option v-for="a in agentOptions" :value="a" v-text="a"></option>
+            </select>
             <select class="d-select rounded-lg px-3 py-2 max-w-[14rem]" v-model="model" @change="applyFilters" aria-label="Model filter" title="Scopes tokens only; heartbeat time is unchanged">
                 <option value="">All models</option>
                 <option v-for="m in modelOptions" :value="m" v-text="m"></option>
@@ -83,9 +87,10 @@
         </div>
     </nav>
     <div class="text-sm mt-3" :class="ledgerMode ? 'd-note' : 'd-muted'" v-text="accountingLabel"></div>
+    <div v-if="agent" class="text-xs d-note mt-1">⚠ Agent filter <span v-text="agent"></span>: only that agent's time and tokens. Your own time and WakaTime fallback tokens (no tool recorded) are excluded, so totals are lower than unfiltered.</div>
 
     <!-- Headline numbers -->
-    <section id="overview" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 border-b d-line">
+    <section id="sec-overview" v-show="tab === 'overview'" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 border-b d-line">
         <div v-if="panels.overview.error" class="col-span-full py-6 flex items-center gap-3 text-sm">
             <span class="d-down">Couldn't load the headline numbers.</span>
             <button class="underline d-muted" @click="load('overview')">Retry</button>
@@ -101,6 +106,7 @@
                     </span>
                     <span v-else class="d-muted">no activity in the previous <span v-text="periodName"></span></span>
                 </div>
+                <div v-if="bd" class="text-xs d-muted mt-0.5 d-num" :title="bd.active_days + ' active days in this range; the streak counts consecutive active days up to today'">Daily avg <span v-text="fmtDuration(bd.daily_average_seconds)"></span> · streak <span v-text="bd.streak_days"></span> <span v-text="bd.streak_days === 1 ? 'day' : 'days'"></span></div>
             </div>
             <div v-if="!panels.overview.error" class="py-5 sm:px-6 xl:border-r d-line">
                 <div class="d-muted text-sm">AI coding</div>
@@ -135,7 +141,7 @@
     </section>
 
     <!-- Activity this week + agent share -->
-    <section id="agents" class="grid grid-cols-1 xl:grid-cols-3 gap-6 py-6 border-b d-line">
+    <section id="sec-activity" v-show="tab === 'overview' || tab === 'agents'" class="grid grid-cols-1 xl:grid-cols-3 gap-6 py-6 border-b d-line">
         <div class="xl:col-span-2 min-w-0">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -191,8 +197,70 @@
         </div>
     </section>
 
+    <!-- Agents tab: per agent group, then model version x reasoning effort -->
+    <section id="sec-agents" v-show="tab === 'agents'" class="py-6 border-b d-line">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="text-2xl font-semibold">Agents</h2>
+            <span class="text-sm d-muted">Time is heartbeat activity; tokens follow the selected token source</span>
+        </div>
+        <div v-if="panels.agents.error" class="py-8 flex items-center gap-3 text-sm">
+            <span class="d-down">Couldn't load agents.</span>
+            <button class="underline d-muted" @click="load('agents')">Retry</button>
+        </div>
+        <div v-if="!ag && !panels.agents.error" class="d-skeleton h-24 rounded mt-4"></div>
+        <div v-if="ag" class="overflow-x-auto mt-2">
+            <table class="w-full text-left min-w-[40rem] d-num">
+                <thead class="d-muted text-sm">
+                    <tr class="border-b d-line">
+                        <th class="font-normal py-2 pr-4">Agent</th>
+                        <th class="font-normal py-2 pr-4">Time</th>
+                        <th class="font-normal py-2 pr-4" v-text="ledgerMode ? 'Accounted tokens' : 'Tokens'"></th>
+                        <th class="font-normal py-2 pr-4">Sessions</th>
+                        <th class="font-normal py-2 pr-4" title="Active time of an AI session (gaps under your timeout), not first-to-last">Median session</th>
+                        <th class="font-normal py-2 pr-4" title="Sum of ai_line_changes reported by the agent's WakaTime integration">AI line changes</th>
+                        <th class="font-normal py-2 text-right" title="Tokens divided by AI line changes; only where line changes were recorded">Tokens / line change</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="a in ag.agents" class="border-b d-line">
+                        <td class="py-2 pr-4 whitespace-nowrap"><span class="inline-block w-3 h-3 rounded-full mr-2 align-middle" :style="{ background: groupColors[a.group] || groupColors.Other }"></span><span v-text="a.group"></span></td>
+                        <td class="py-2 pr-4" v-text="a.seconds ? fmtDuration(a.seconds) : '—'"></td>
+                        <td class="py-2 pr-4" :title="fmtInt(a.tokens)" v-text="fmtTokens(a.tokens)"></td>
+                        <td class="py-2 pr-4" v-text="a.sessions || '—'"></td>
+                        <td class="py-2 pr-4" v-text="a.median_session_seconds ? fmtMinutes(a.median_session_seconds) : '—'"></td>
+                        <td class="py-2 pr-4" v-text="a.line_changes ? fmtInt(a.line_changes) : '—'"></td>
+                        <td class="py-2 text-right" v-text="a.tokens_per_line_change ? fmtTokens(Math.round(a.tokens_per_line_change)) : '—'"></td>
+                    </tr>
+                    <tr v-if="!ag.agents.length"><td colspan="7" class="py-6 d-muted text-sm">No agent activity in this range.</td></tr>
+                </tbody>
+            </table>
+            <div class="text-xs d-muted mt-2">Prompts per session are not shown: Wakapi does not store <code>ai_prompt_length</code>. WakaTime fallback has tokens but no tool, so it has no time or sessions.</div>
+
+            <h3 class="text-lg font-semibold mt-8">Model version × reasoning effort</h3>
+            <table class="w-full text-left min-w-[40rem] d-num mt-2">
+                <thead class="d-muted text-sm">
+                    <tr class="border-b d-line">
+                        <th class="font-normal py-2 pr-4">Agent</th>
+                        <th class="font-normal py-2 pr-4">Model</th>
+                        <th class="font-normal py-2 pr-4">Reasoning effort</th>
+                        <th class="font-normal py-2 text-right">Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="m in ag.models" class="border-b d-line">
+                        <td class="py-2 pr-4" v-text="m.group"></td>
+                        <td class="py-2 pr-4" v-text="m.model || '(no model)'"></td>
+                        <td class="py-2 pr-4" :class="m.effort ? '' : 'd-muted'" v-text="m.effort || 'not recorded'"></td>
+                        <td class="py-2 text-right" v-text="fmtDuration(m.seconds)"></td>
+                    </tr>
+                    <tr v-if="!ag.models.length"><td colspan="4" class="py-6 d-muted text-sm">No agent activity in this range.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
     <!-- Today's timeline (machines are added next to it) -->
-    <section class="grid grid-cols-1 xl:grid-cols-3 gap-6 py-6 border-b d-line">
+    <section v-show="tab === 'overview'" class="grid grid-cols-1 xl:grid-cols-3 gap-6 py-6 border-b d-line">
         <div id="timeline" class="xl:col-span-2 min-w-0 d-card rounded-xl p-5">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="flex flex-wrap items-baseline gap-x-4">
@@ -266,11 +334,55 @@
         </div>
     </section>
 
+    <!-- Overview: rhythm heatmap and compact bars -->
+    <section id="sec-breakdown" v-show="tab === 'overview'" class="grid grid-cols-1 xl:grid-cols-3 gap-6 py-6 border-b d-line">
+        <div class="xl:col-span-2 min-w-0">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <h2 class="text-2xl font-semibold">Rhythm</h2>
+                <div class="flex items-center gap-4 text-sm">
+                    <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm" style="background: rgb(139 124 248)"></span>Mostly agents</span>
+                    <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm" style="background: rgb(96 165 250)"></span>Mostly you</span>
+                </div>
+            </div>
+            <div v-if="panels.breakdown.error" class="py-8 flex items-center gap-3 text-sm">
+                <span class="d-down">Couldn't load the rhythm.</span>
+                <button class="underline d-muted" @click="load('breakdown')">Retry</button>
+            </div>
+            <div v-if="!bd && !panels.breakdown.error" class="d-skeleton h-40 rounded mt-4"></div>
+            <div v-if="bd" class="overflow-x-auto mt-4">
+                <div class="min-w-[36rem] grid gap-1" style="grid-template-columns: 2.5rem repeat(24, minmax(0, 1fr))">
+                    <span></span>
+                    <span v-for="h in 24" class="text-xs d-muted text-center d-num" v-text="(h - 1) % 3 === 0 ? String(h - 1).padStart(2, '0') : ''"></span>
+                    <div v-for="(day, d) in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" style="display: contents">
+                        <span class="text-xs d-muted self-center" v-text="day"></span>
+                        <span v-for="h in 24" class="h-5 rounded-sm" :style="rhythmCell(d, h - 1)" :title="rhythmTitle(d, h - 1)"></span>
+                    </div>
+                </div>
+                <div class="text-xs d-muted mt-2">Hours of the week in <span v-text="timeZone"></span>; darker = more activity in the selected range. Parallel agent sessions count once.</div>
+            </div>
+        </div>
+        <div class="xl:border-l d-line xl:pl-6 flex flex-col gap-6">
+            <div v-for="b in [{ title: 'Languages', key: 'languages' }, { title: 'Categories', key: 'categories' }, { title: 'Editors & agents', key: 'editors' }]">
+                <h3 class="text-base font-semibold" v-text="b.title"></h3>
+                <div v-if="!bd" class="d-skeleton h-16 rounded mt-2"></div>
+                <div v-if="bd" class="flex flex-col gap-1.5 mt-2">
+                    <div v-for="row in barRows(bd[b.key])" class="grid items-center gap-3 text-sm" style="grid-template-columns: 8rem 1fr 4.5rem">
+                        <span class="truncate" :title="row.name" v-text="row.name"></span>
+                        <div class="h-2.5 rounded bg-white/5 overflow-hidden"><div class="h-full rounded" style="background: rgb(124 108 246)" :style="{ width: barWidth(bd[b.key], row) }"></div></div>
+                        <span class="text-right d-num d-muted" v-text="fmtDuration(row.seconds)"></span>
+                    </div>
+                    <div v-if="!bd[b.key].length" class="text-sm d-muted">Nothing recorded in this range.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Projects -->
-    <section id="projects" class="py-6 border-b d-line">
+    <section id="sec-projects" v-show="tab === 'overview' || tab === 'projects'" class="py-6 border-b d-line">
         <div class="flex items-center justify-between">
             <h2 class="text-2xl font-semibold">Projects</h2>
-            <button v-if="pj && pj.projects.length > 6" class="text-sm d-muted hover:underline" @click="projectsExpanded = !projectsExpanded" v-text="projectsExpanded ? 'Show top 6' : 'View all (' + pj.projects.length + ') →'"></button>
+            <span v-if="pj && tab === 'projects'" class="text-sm d-muted"><span v-text="pj.projects.length"></span> projects · click a column to sort</span>
+            <button v-if="pj && pj.projects.length > 6 && tab !== 'projects'" class="text-sm d-muted hover:underline" @click="projectsExpanded = !projectsExpanded" v-text="projectsExpanded ? 'Show top 6' : 'View all (' + pj.projects.length + ') →'"></button>
         </div>
         <div v-if="panels.projects.error" class="py-8 flex items-center gap-3 text-sm">
             <span class="d-down">Couldn't load projects.</span>
@@ -283,11 +395,12 @@
             <table class="w-full text-left min-w-[40rem]">
                 <thead class="d-muted text-sm">
                     <tr class="border-b d-line">
-                        <th class="font-normal py-2 pr-4">Project</th>
+                        <th class="font-normal py-2 pr-4" :class="tab === 'projects' ? 'cursor-pointer hover:underline' : ''" @click="tab === 'projects' && sortProjects('name')" v-text="'Project' + (tab === 'projects' ? sortMark('name') : '')"></th>
                         <th class="font-normal py-2 pr-4" :title="pj.status_source === 'mnemosyne' ? 'From Mnemosyne' : 'From project labels: active, paused, done'">Status</th>
-                        <th class="font-normal py-2 pr-4">Time</th>
-                        <th class="font-normal py-2 pr-4">Tokens</th>
-                        <th class="font-normal py-2 pr-4">Est. API value · USD</th>
+                        <th class="font-normal py-2 pr-4" :class="tab === 'projects' ? 'cursor-pointer hover:underline' : ''" @click="tab === 'projects' && sortProjects('seconds')" v-text="'Time' + (tab === 'projects' ? sortMark('seconds') : '')"></th>
+                        <th class="font-normal py-2 pr-4" :class="tab === 'projects' ? 'cursor-pointer hover:underline' : ''" @click="tab === 'projects' && sortProjects('tokens')" v-text="'Tokens' + (tab === 'projects' ? sortMark('tokens') : '')"></th>
+                        <th class="font-normal py-2 pr-4" :class="tab === 'projects' ? 'cursor-pointer hover:underline' : ''" @click="tab === 'projects' && sortProjects('cost')" v-text="'Est. API value · USD' + (tab === 'projects' ? sortMark('cost') : '')"></th>
+                        <th v-if="tab === 'projects'" class="font-normal py-2 pr-4 cursor-pointer hover:underline" @click="sortProjects('last_active')" v-text="'Last active' + sortMark('last_active')"></th>
                         <th class="font-normal py-2 w-[18rem]" v-text="'Activity (' + pj.days.length + ' days)'"></th>
                     </tr>
                 </thead>
@@ -301,18 +414,65 @@
                             <span v-text="p.cost_available ? fmtUSD(p.cost) : 'Unavailable'"></span>
                             <div v-if="p.unpriced_tokens" class="text-xs d-note"><span v-text="fmtTokens(p.unpriced_tokens)"></span> unpriced</div>
                         </td>
+                        <td v-if="tab === 'projects'" class="py-2 pr-4 d-num whitespace-nowrap d-muted" :title="p.last_active ? new Date(p.last_active).toLocaleString() : ''" v-text="p.last_active && !p.last_active.startsWith('0001') ? ago(p.last_active) : '—'"></td>
                         <td class="py-2">
                             <svg width="280" height="28" viewBox="0 0 280 28" class="max-w-full" aria-hidden="true"><polyline :points="sparkline(p.daily_seconds)" fill="none" stroke="#8b7cf8" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>
                         </td>
                     </tr>
-                    <tr v-if="!pj.projects.length"><td colspan="6" class="py-6 d-muted text-sm">No project activity in this range.</td></tr>
+                    <tr v-if="!pj.projects.length"><td colspan="7" class="py-6 d-muted text-sm">No project activity in this range.</td></tr>
                 </tbody>
             </table>
         </div>
     </section>
 
+    <!-- Tokens & cost tab: daily buckets, cache-read share, value per agent hour, cost by project -->
+    <section id="sec-token-days" v-show="tab === 'tokens'" class="grid grid-cols-1 xl:grid-cols-3 gap-6 py-6 border-b d-line">
+        <div class="xl:col-span-2 min-w-0">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <h2 class="text-2xl font-semibold" v-text="ledgerMode ? 'Accounted tokens by day' : 'Tokens by day'"></h2>
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                    <span v-for="b in tokenBuckets" class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-full" :style="{ background: b.color }"></span><span v-text="b.label"></span></span>
+                    <span class="flex items-center gap-2"><span class="inline-block w-4 h-0.5" style="background: rgb(230 232 242)"></span>Cache-read share</span>
+                </div>
+            </div>
+            <div class="relative h-64 mt-4">
+                <canvas id="token-days-chart" v-show="tk && !panels.tokens.error"></canvas>
+                <div v-if="!tk && !panels.tokens.error" class="d-skeleton absolute inset-0 rounded"></div>
+                <div v-if="panels.tokens.error" class="absolute inset-0 flex items-center justify-center gap-3 text-sm">
+                    <span class="d-down">Couldn't load tokens.</span>
+                    <button class="underline d-muted" @click="load('tokens')">Retry</button>
+                </div>
+            </div>
+            <div class="text-xs d-muted mt-2">Cache-read share = cache reads / all input tokens (new, cache read, cache write, unknown split). Reasoning is inside output.</div>
+        </div>
+        <div class="xl:border-l d-line xl:pl-6 flex flex-col gap-5">
+            <div>
+                <div class="d-muted text-sm" v-text="ledgerMode ? 'Priced-bucket API value · USD' : 'Legacy estimated API value · USD'"></div>
+                <div v-if="ov" class="text-3xl font-semibold d-num mt-1" v-text="ov.cost.available ? fmtUSD(ov.cost.estimated_api_value) : 'Unavailable'"></div>
+                <div v-else class="d-skeleton h-9 w-32 rounded mt-1"></div>
+                <div v-if="ov && ov.cost.attribution === 'recorded_plan'" class="text-sm d-muted mt-1 d-num"><span v-text="fmtUSD(ov.cost.recorded_plan_value)"></span> with a recorded plan · <span v-text="fmtUSD(ov.cost.plan_unknown_value)"></span> plan unknown</div>
+            </div>
+            <div>
+                <div class="d-muted text-sm" title="API value divided by agent time (union of agent sessions) in the range">Value per agent hour</div>
+                <div class="text-3xl font-semibold d-num mt-1" v-text="costPerAgentHour === null ? '—' : fmtUSD(costPerAgentHour)"></div>
+                <div v-if="ov" class="text-sm d-muted mt-1 d-num"><span v-text="fmtDuration(ov.time.agent_seconds)"></span> of agent time</div>
+            </div>
+            <div class="min-w-0">
+                <div class="d-muted text-sm">Value by project</div>
+                <div v-if="!pj" class="d-skeleton h-16 rounded mt-2"></div>
+                <div v-if="pj" class="flex flex-col gap-1.5 mt-2 text-sm d-num">
+                    <div v-for="p in projectsByCost.slice(0, 8)" class="flex items-baseline justify-between gap-3">
+                        <span class="truncate" :title="p.name" v-text="p.name || '(unassigned)'"></span>
+                        <span class="whitespace-nowrap"><span v-text="p.cost_available ? fmtUSD(p.cost) : '—'"></span> <span class="d-muted text-xs" v-text="fmtTokens(p.tokens)"></span></span>
+                    </div>
+                    <div v-if="!projectsByCost.length" class="d-muted">No token usage in this range.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Tokens & cost by model -->
-    <section id="tokens" class="py-6 border-b d-line">
+    <section id="sec-tokens" v-show="tab === 'overview' || tab === 'tokens'" class="py-6 border-b d-line">
         <div class="flex flex-wrap items-baseline justify-between gap-2">
             <h2 class="text-2xl font-semibold">Tokens &amp; cost</h2>
             <span class="text-sm d-muted">Estimated at API list prices from the local price file</span>
@@ -366,11 +526,65 @@
                     <tr v-if="!costRows.length"><td colspan="8" class="py-6 d-muted text-sm">No recorded token data in this range.</td></tr>
                 </tbody>
             </table>
-            <button v-if="allCostRows.length > 8" class="text-sm underline d-muted mt-3" @click="modelsExpanded = !modelsExpanded" v-text="modelsExpanded ? 'Show fewer models' : 'Show all ' + allCostRows.length + ' models'"></button>
+            <button v-if="allCostRows.length > 8 && tab !== 'tokens'" class="text-sm underline d-muted mt-3" @click="modelsExpanded = !modelsExpanded" v-text="modelsExpanded ? 'Show fewer models' : 'Show all ' + allCostRows.length + ' models'"></button>
             <div class="text-xs d-muted mt-3" v-text="cs.cost.pricing_basis"></div>
             <div v-if="cs.coverage_notes.length" class="text-xs d-note mt-2 flex flex-col gap-0.5">
                 <span v-for="n in cs.coverage_notes">⚠ <span v-text="n"></span></span>
             </div>
+        </div>
+    </section>
+
+    <!-- Machines tab: per machine agents, pipeline health -->
+    <section id="sec-machines" v-show="tab === 'machines'" class="py-6 border-b d-line">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="text-2xl font-semibold">Machines</h2>
+            <span class="text-sm d-muted">Last 30 days · refreshes every minute</span>
+        </div>
+        <div v-if="panels.machines.error" class="py-8 flex items-center gap-3 text-sm">
+            <span class="d-down">Couldn't load machines.</span>
+            <button class="underline d-muted" @click="load('machines')">Retry</button>
+        </div>
+        <div v-if="!mc && !panels.machines.error" class="d-skeleton h-40 rounded mt-4"></div>
+        <div v-if="mc">
+            <div v-for="w in mc.warnings" class="mt-3 flex items-center gap-3 rounded-lg px-4 py-3 border" :class="w.kind === 'sync_stalled' ? 'border-red-500/40 bg-red-500/10 text-red-300' : 'border-amber-500/40 bg-amber-500/10 text-amber-300'">
+                <span class="text-lg leading-none">⚠</span><span v-text="w.message"></span>
+            </div>
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-4">
+                <div v-for="m in mc.machines" class="d-card rounded-xl p-5 min-w-0">
+                    <div class="flex items-start gap-3">
+                        <span class="mt-2 inline-block w-3 h-3 rounded-full shrink-0" :class="m.live ? 'bg-green-500' : 'bg-gray-500'"></span>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-lg font-semibold truncate" v-text="m.name"></div>
+                            <div class="d-muted text-sm truncate" v-text="machineLine(m)"></div>
+                        </div>
+                        <span class="text-sm d-muted whitespace-nowrap" :title="new Date(m.last_seen).toLocaleString()" v-text="ago(m.last_seen)"></span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm d-num mt-3">
+                            <thead class="d-muted">
+                                <tr class="border-b d-line"><th class="font-normal py-1.5 pr-3">Editor / agent</th><th class="font-normal py-1.5 pr-3">Group</th><th class="font-normal py-1.5 pr-3">Heartbeats</th><th class="font-normal py-1.5 text-right">Last seen</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="a in m.agents" class="border-b d-line">
+                                    <td class="py-1.5 pr-3" v-text="a.editor"></td>
+                                    <td class="py-1.5 pr-3 d-muted" v-text="a.group"></td>
+                                    <td class="py-1.5 pr-3" v-text="fmtInt(a.heartbeats_30d)"></td>
+                                    <td class="py-1.5 text-right d-muted" :title="new Date(a.last_seen).toLocaleString()" v-text="ago(a.last_seen)"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div v-if="pipelineFor(m).length" class="mt-4">
+                        <div class="text-sm font-semibold">Pipelines</div>
+                        <div class="text-xs d-muted">Last agent heartbeat (WakaTime AI sync) vs last token ledger event (collector)</div>
+                        <div v-for="p in pipelineFor(m)" class="flex flex-wrap items-center justify-between gap-2 text-sm mt-2">
+                            <span class="flex items-center gap-2"><span class="inline-block w-2 h-2 rounded-full" :class="p.stalled ? 'bg-red-500' : 'bg-green-500'"></span><span v-text="p.group"></span></span>
+                            <span class="d-muted d-num">heartbeat <span v-text="p.last_heartbeat ? ago(p.last_heartbeat) : 'never'"></span> · ledger <span v-text="ago(p.last_ledger)"></span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div v-if="!mc.machines.length" class="py-6 d-muted text-sm">No heartbeats in the last 30 days.</div>
         </div>
     </section>
 
@@ -388,7 +602,7 @@
     const dashboardTimeZone = {{ .TimeZone | json }}
     const dashboardTokenSource = {{ .TokenSource | json }}
 </script>
-<script type="module" src="assets/js/dashboard/app.js?v={{ getCacheBuster }}&amp;accounting=ledger-v2"></script>
+<script type="module" src="assets/js/dashboard/app.js?v={{ getCacheBuster }}&amp;accounting=ledger-v2&amp;ui=plan2-v1"></script>
 
 </body>
 
