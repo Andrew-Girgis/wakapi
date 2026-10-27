@@ -165,6 +165,7 @@ type DashboardMachine struct {
 }
 
 type DashboardWarning struct {
+	Kind       string    `json:"kind"` // "silent" (no heartbeats for days) or "sync_stalled" (tokens arrive, heartbeats do not)
 	Machine    string    `json:"machine"`
 	Editor     string    `json:"editor"`
 	SilentDays int       `json:"silent_days"`
@@ -172,11 +173,22 @@ type DashboardWarning struct {
 	Message    string    `json:"message"`
 }
 
+// DashboardPipeline compares the two independent pipelines for one (machine, agent group):
+// heartbeats (wakatime-cli AI sync) and counted token ledger events (ledger collector).
+type DashboardPipeline struct {
+	Machine       string     `json:"machine"`
+	Group         string     `json:"group"`
+	LastHeartbeat *time.Time `json:"last_heartbeat"`
+	LastLedger    time.Time  `json:"last_ledger"`
+	Stalled       bool       `json:"stalled"`
+}
+
 type DashboardMachines struct {
-	Now       time.Time          `json:"now"`
-	LiveCount int                `json:"live_count"`
-	Machines  []DashboardMachine `json:"machines"`
-	Warnings  []DashboardWarning `json:"warnings"`
+	Now       time.Time           `json:"now"`
+	LiveCount int                 `json:"live_count"`
+	Machines  []DashboardMachine  `json:"machines"`
+	Warnings  []DashboardWarning  `json:"warnings"`
+	Pipelines []DashboardPipeline `json:"pipelines"`
 }
 
 type DashboardProject struct {

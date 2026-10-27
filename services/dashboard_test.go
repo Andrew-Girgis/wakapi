@@ -285,3 +285,33 @@ func TestDashboardService_ClampFrom(t *testing.T) {
 	assert.True(t, got.Equal(dashDay.AddDate(0, 0, -10)), got)      // first heartbeat is the old Codex-cli history, 10 days earlier
 	assert.True(t, sut.ClampFrom(dashUser, dashDay).Equal(dashDay)) // ranges after the first heartbeat are unchanged
 }
+
+func TestPipelineHealth(t *testing.T) {
+	at := time.Date(2026, 10, 26, 20, 0, 0, 0, time.UTC)
+	ev := func(source, machine string, t time.Time) models.TokenUsageEvent {
+		return models.TokenUsageEvent{Source: source, Machine: machine, OccurredMs: t.UnixMilli()}
+	}
+	hb := map[[2]string]time.Time{
+		{"omphalos", GroupClaudeCode}: at.Add(-2 * time.Hour), // stalled: ledger 2 h ahead
+		{"omphalos", GroupCodex}:      at.Add(-10 * time.Minute),
+	}
+	pipelines, warnings := pipelineHealth(hb, []models.TokenUsageEvent{
+		ev("claude", "omphalos", at),
+		ev("codex", "omphalos", at),
+		ev("opencode", "Pythia", at),                    // no heartbeats at all
+		ev("pi", "omphalos", at),                        // skipped: wakatime-cli cannot parse Pi
+		ev("wakatime", "omphalos", at.Add(5*time.Hour)), // skipped: fallback has no tool
+	})
+	assert.Len(t, pipelines, 3)
+	assert.Len(t, warnings, 2)
+	stalled := map[string]bool{}
+	for _, p := range pipelines {
+		stalled[p.Machine+"/"+p.Group] = p.Stalled
+	}
+	assert.True(t, stalled["omphalos/"+GroupClaudeCode])
+	assert.False(t, stalled["omphalos/"+GroupCodex])
+	assert.True(t, stalled["Pythia/"+GroupOpenCode])
+	for _, w := range warnings {
+		assert.Equal(t, "sync_stalled", w.Kind)
+	}
+}
