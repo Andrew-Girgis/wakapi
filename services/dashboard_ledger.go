@@ -87,6 +87,10 @@ func (s *DashboardService) loadLedger(u *models.User, from, to time.Time, f Dash
 		if !matchesModel(e.Model, f.Model) {
 			continue
 		}
+		// WakaTime fallback has no tool, so it drops out under an agent filter
+		if f.Agent != "" && !strings.EqualFold(ledgerGroup(e.Source), f.Agent) {
+			continue
+		}
 		rows = append(rows, e)
 	}
 	return rows, nil

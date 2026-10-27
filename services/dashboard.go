@@ -47,10 +47,17 @@ type DashboardFilters struct {
 	Project string
 	Machine string
 	Model   string // token-only filter; activity time is not inferred from model usage
+	Agent   string // agent group (Claude Code, Codex, Pi, OpenCode): agent heartbeats and ledger events of that tool only
+}
+
+// matchesAgent: with an agent filter, only that agent group's agent heartbeats count (no "You" time).
+func (f DashboardFilters) matchesAgent(h *models.Heartbeat) bool {
+	return f.Agent == "" || (isAgentHeartbeat(h) && strings.EqualFold(AgentGroup(h.Editor), f.Agent))
 }
 
 type dashSpan struct {
 	Interval
+	Hb      *models.Heartbeat // heartbeat that starts the span (language, category, model, effort, session)
 	Project string
 	Group   string
 	Machine string
@@ -136,7 +143,7 @@ func isAgentHeartbeat(h *models.Heartbeat) bool {
 // load returns the user's heartbeats in [from, to) after filters, and their activity spans.
 // Unlike Wakapi durations, agent "thinking time" heartbeats (type app, category ai coding) are counted.
 func (srv *DashboardService) load(user *models.User, from, to time.Time, filters DashboardFilters) (*dashData, error) {
-	key := fmt.Sprintf("%s|%d|%d|%s|%s", user.ID, from.Unix(), to.Unix(), filters.Project, filters.Machine)
+	key := fmt.Sprintf("%s|%d|%d|%s|%s|%s", user.ID, from.Unix(), to.Unix(), filters.Project, filters.Machine, filters.Agent)
 	if cached, ok := srv.cache.Get(key); ok {
 		return cached.(*dashData), nil
 	}
@@ -154,6 +161,9 @@ func (srv *DashboardService) load(user *models.User, from, to time.Time, filters
 			continue
 		}
 		if filters.Machine != "" && !strings.EqualFold(h.Machine, filters.Machine) {
+			continue
+		}
+		if !filters.matchesAgent(h) {
 			continue
 		}
 		data.heartbeats = append(data.heartbeats, h)
@@ -193,6 +203,7 @@ func (srv *DashboardService) load(user *models.User, from, to time.Time, filters
 			}
 			data.spans = append(data.spans, dashSpan{
 				Interval: Interval{start, end},
+				Hb:       hbs[k],
 				Project:  hbs[k].Project,
 				Group:    group,
 				Machine:  hbs[k].Machine,

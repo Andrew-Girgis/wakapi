@@ -55,6 +55,12 @@ func (h *DashboardApiHandler) RegisterRoutes(router chi.Router) {
 	r.Get("/projects", h.withRange(func(u *models.User, from, to time.Time, f services.DashboardFilters) (any, error) {
 		return h.dashboardSrvc.Projects(u, from, to, f)
 	}))
+	r.Get("/breakdown", h.withRange(func(u *models.User, from, to time.Time, f services.DashboardFilters) (any, error) {
+		return h.dashboardSrvc.Breakdown(u, from, to, f, time.Now())
+	}))
+	r.Get("/agents", h.withRange(func(u *models.User, from, to time.Time, f services.DashboardFilters) (any, error) {
+		return h.dashboardSrvc.Agents(u, from, to, f)
+	}))
 	r.Get("/timeline", h.GetTimeline)
 	r.Get("/machines", h.GetMachines)
 	r.Get("/options", func(w http.ResponseWriter, r *http.Request) {
@@ -133,5 +139,6 @@ func (h *DashboardApiHandler) respond(w http.ResponseWriter, r *http.Request) fu
 }
 
 func filtersFrom(r *http.Request) services.DashboardFilters {
-	return services.DashboardFilters{Project: r.URL.Query().Get("project"), Machine: r.URL.Query().Get("machine"), Model: r.URL.Query().Get("model")}
+	q := r.URL.Query()
+	return services.DashboardFilters{Project: q.Get("project"), Machine: q.Get("machine"), Model: q.Get("model"), Agent: q.Get("agent")}
 }

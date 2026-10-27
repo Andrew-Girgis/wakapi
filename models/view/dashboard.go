@@ -233,3 +233,47 @@ func (s *DashboardViewModel) WithError(m string) *DashboardViewModel {
 	s.SetError(m)
 	return s
 }
+
+// DashboardBar is one row of a compact bar chart (time per language, category or editor).
+type DashboardBar struct {
+	Name    string  `json:"name"`
+	Seconds float64 `json:"seconds"`
+}
+
+// DashboardBreakdown: daily average, streak, rhythm heatmap and time by language, category and editor.
+type DashboardBreakdown struct {
+	Range               DashboardRange `json:"range"`
+	ActiveDays          int            `json:"active_days"`
+	DailyAverageSeconds float64        `json:"daily_average_seconds"` // total time / active days in range
+	StreakDays          int            `json:"streak_days"`           // consecutive active days up to today (or yesterday), max 365
+	// [weekday 0=Monday][hour 0-23] seconds, user's time zone; agents and you are unions, so parallel streams count once
+	RhythmAgents [][]float64    `json:"rhythm_agents"`
+	RhythmYou    [][]float64    `json:"rhythm_you"`
+	Languages    []DashboardBar `json:"languages"`
+	Categories   []DashboardBar `json:"categories"`
+	Editors      []DashboardBar `json:"editors"`
+}
+
+type DashboardAgentStats struct {
+	Group                string  `json:"group"`
+	Seconds              float64 `json:"seconds"`
+	Tokens               int64   `json:"tokens"`
+	Sessions             int     `json:"sessions"`
+	MedianSessionSeconds float64 `json:"median_session_seconds"`
+	LineChanges          int64   `json:"line_changes"`           // sum of ai_line_changes
+	TokensPerLineChange  float64 `json:"tokens_per_line_change"` // 0 when no line changes were recorded
+}
+
+type DashboardModelEffort struct {
+	Group   string  `json:"group"`
+	Model   string  `json:"model"`
+	Effort  string  `json:"effort"` // ai_model_complexity, e.g. "high"; empty when not recorded
+	Seconds float64 `json:"seconds"`
+}
+
+type DashboardAgents struct {
+	DashboardAccounting
+	Range  DashboardRange         `json:"range"`
+	Agents []DashboardAgentStats  `json:"agents"`
+	Models []DashboardModelEffort `json:"models"`
+}
