@@ -144,3 +144,68 @@ func TestDashboardLedger_AllTimeIncludesEarlierUsageAndDSTBins(t *testing.T) {
 	require.Len(t, result.ByDay, 1)
 	require.Equal(t, int64(1), result.ByDay[0].Tokens.Total)
 }
+
+func TestAttributePlans_StrictRecordedPlan(t *testing.T) {
+	ev := func(source, key, session string) models.TokenUsageEvent {
+		return models.TokenUsageEvent{Source: source, SourceKey: key, SessionKey: session}
+	}
+	hb := func(session, editor, category, plan string) SessionPlanRow {
+		return SessionPlanRow{AISession: session, Editor: editor, Category: category, AISubscriptionPlan: plan}
+	}
+	found := map[string][]SessionPlanRow{}
+	for _, r := range []SessionPlanRow{
+		hb("all-pro", "Claude", "ai coding", "pro"), hb("all-pro", "Claude code", "AI Coding", "pro"),
+		hb("some-empty", "Claude", "ai coding", "pro"), hb("some-empty", "Claude", "ai coding", ""),
+		hb("two-plans", "Claude", "ai coding", "pro"), hb("two-plans", "Claude", "ai coding", "max"),
+		hb("other-tool", "Claude", "ai coding", "pro"),
+		hb("pi", "Pi-coding-agent", "coding", "pro"),
+		hb("copy-a", "Claude", "ai coding", "pro"), hb("copy-b", "Claude", "ai coding", "pro"), hb("copy-c", "Claude", "ai coding", "max"),
+	} {
+		found[r.AISession] = append(found[r.AISession], r)
+	}
+	refs := map[[2]string][]string{{"claude", "copied-agree"}: {"copy-b"}, {"claude", "copied-conflict"}: {"copy-c"}}
+	sessionsOf := func(e models.TokenUsageEvent) []string {
+		return append([]string{e.SessionKey}, refs[[2]string{e.Source, e.SourceKey}]...)
+	}
+	rows := []models.TokenUsageEvent{
+		ev("claude", "a", "all-pro"), ev("claude", "b", "some-empty"), ev("claude", "c", "two-plans"),
+		ev("claude", "d", "no-heartbeats"), ev("codex", "e", "other-tool"), ev("pi", "f", "pi"),
+		ev("claude", "copied-agree", "copy-a"), ev("claude", "copied-conflict", "copy-a"),
+		ev("wakatime", "g", "all-pro"),
+	}
+	plans := attributePlans(rows, sessionsOf, found)
+	require.Equal(t, map[[2]string]string{
+		{"claude", "a"}: "pro", {"pi", "f"}: "pro", {"claude", "copied-agree"}: "pro",
+	}, plans)
+}
+
+func TestDashboardLedger_RecordedPlanSplitKeepsTotalsAndSummaryParity(t *testing.T) {
+	defer config.Set(config.Empty())
+	s := dashboardLedgerFixture(t)
+	require.NoError(t, s.ledger.db.AutoMigrate(&models.Heartbeat{}))
+	// the copied pi event lives in sessions s1 and copy; both record plan "pro"
+	for i, session := range []string{"s1", "copy"} {
+		require.NoError(t, s.ledger.db.Create(&models.Heartbeat{UserID: dashUser.ID, Editor: "Pi-coding-agent", Category: "coding", AISession: session, AISubscriptionPlan: "pro", Hash: strings.Repeat(string(rune('c'+i)), 16), Time: models.CustomTime(dashStart)}).Error)
+	}
+	from, to := dayRange()
+	before, err := s.LedgerSummary(dashUser, from, to, DashboardFilters{})
+	require.NoError(t, err)
+	cost, err := s.Cost(dashUser, from, to, DashboardFilters{})
+	require.NoError(t, err)
+	require.Equal(t, "recorded_plan", cost.Cost.Attribution)
+	plans := map[string]int64{}
+	var sum int64
+	for _, m := range cost.Cost.ByModel {
+		plans[m.Model+"|"+m.RecordedPlan] += m.Tokens.Total
+		sum += m.Tokens.Total
+	}
+	require.Equal(t, int64(382), sum)
+	require.Equal(t, int64(162), plans["claude-opus-4-6|pro"])
+	require.Equal(t, int64(220), plans["Opus 4-6|"]) // WakaTime fallback is never attributed
+	after, err := s.LedgerSummary(dashUser, from, to, DashboardFilters{})
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	direct, err := s.ledger.Summary(dashUser.ID, from.UnixMilli(), to.UnixMilli(), "", "")
+	require.NoError(t, err)
+	require.Equal(t, direct.TotalTokens, after.TotalTokens)
+}

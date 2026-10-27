@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"github.com/muety/wakapi/config"
 	"github.com/muety/wakapi/models"
 	"github.com/muety/wakapi/models/view"
 	"sort"
@@ -153,13 +154,34 @@ func (s *DashboardService) ledgerNotes(u *models.User, rows []models.TokenUsageE
 
 // Estimate only verified buckets at exactly configured rates, never old spend.
 func (s *DashboardService) ledgerCost(rows []models.TokenUsageEvent) view.DashboardCost {
-	c := view.DashboardCost{Currency: "USD", PricingBasis: "Configured standard-tier, short-context/global-routing USD rates; partial API-equivalent value, not historical bills. Unknown input, missing rates and unverified cache-write TTL/rates are excluded.", ByModel: []view.DashboardModelCost{}}
-	groups := map[string][]models.TokenUsageEvent{}
-	for _, e := range rows {
-		groups[e.Model] = append(groups[e.Model], e)
+	return s.ledgerCostWith(rows, nil)
+}
+
+// ledgerCostAttributed additionally splits each model by the plan recorded on its sessions' heartbeats.
+// If that lookup fails the cost is still shown, without attribution.
+func (s *DashboardService) ledgerCostAttributed(u *models.User, rows []models.TokenUsageEvent) view.DashboardCost {
+	plans, err := s.recordedPlans(u, rows)
+	if err != nil {
+		config.Log().Warn("recorded plan attribution unavailable", "error", err)
+		return s.ledgerCostWith(rows, nil)
 	}
-	for model, events := range groups {
-		mc := view.DashboardModelCost{Model: model, Tokens: ledgerTotals(events)}
+	return s.ledgerCostWith(rows, plans)
+}
+
+func (s *DashboardService) ledgerCostWith(rows []models.TokenUsageEvent, plans map[[2]string]string) view.DashboardCost {
+	c := view.DashboardCost{Currency: "USD", PricingBasis: "Configured standard-tier, short-context/global-routing USD rates; partial API-equivalent value, not historical bills. Unknown input, missing rates and unverified cache-write TTL/rates are excluded.", ByModel: []view.DashboardModelCost{}}
+	if plans != nil {
+		c.Attribution = "recorded_plan"
+	}
+	type key struct{ model, plan string }
+	groups := map[key][]models.TokenUsageEvent{}
+	for _, e := range rows {
+		k := key{e.Model, plans[[2]string{e.Source, e.SourceKey}]}
+		groups[k] = append(groups[k], e)
+	}
+	var recorded, unknown float64
+	for k, events := range groups {
+		mc := view.DashboardModelCost{Model: k.model, RecordedPlan: k.plan, Tokens: ledgerTotals(events)}
 		for _, e := range events {
 			if s.pricing != nil {
 				value, priced := s.pricing.LedgerEventCost(e)
@@ -172,18 +194,102 @@ func (s *DashboardService) ledgerCost(rows []models.TokenUsageEvent) view.Dashbo
 		c.EstimatedAPIValue += mc.Cost
 		c.PricedTokens += mc.PricedTokens
 		c.UnpricedTokens += mc.UnpricedTokens
+		if k.plan != "" {
+			recorded += mc.Cost
+		} else {
+			unknown += mc.Cost
+		}
 		mc.Cost = round2(mc.Cost)
 		c.ByModel = append(c.ByModel, mc)
 	}
 	c.Available = c.PricedTokens > 0
 	c.EstimatedAPIValue = round2(c.EstimatedAPIValue)
+	if plans != nil {
+		c.RecordedPlanValue, c.PlanUnknownValue = round2(recorded), round2(unknown)
+	}
 	sort.Slice(c.ByModel, func(i, j int) bool {
-		if c.ByModel[i].Cost == c.ByModel[j].Cost {
+		if c.ByModel[i].Cost != c.ByModel[j].Cost {
+			return c.ByModel[i].Cost > c.ByModel[j].Cost
+		}
+		if c.ByModel[i].Model != c.ByModel[j].Model {
 			return c.ByModel[i].Model < c.ByModel[j].Model
 		}
-		return c.ByModel[i].Cost > c.ByModel[j].Cost
+		return c.ByModel[i].RecordedPlan < c.ByModel[j].RecordedPlan
 	})
 	return c
+}
+
+// recordedPlans attributes a counted event to plan X only when every agent heartbeat (of the event's own agent
+// group) in every session containing the event recorded X. Missing, empty or conflicting plans, sessions without
+// heartbeats and WakaTime fallback events stay unattributed ("plan unknown"). Absence of a plan never means
+// pay-per-token, and the lookup has no time bound, so a session's attribution does not depend on the range.
+func (s *DashboardService) recordedPlans(u *models.User, rows []models.TokenUsageEvent) (map[[2]string]string, error) {
+	refs, err := s.ledger.SessionRefs(u.ID)
+	if err != nil {
+		return nil, err
+	}
+	sessionsOf := func(e models.TokenUsageEvent) []string {
+		out := []string{}
+		for _, k := range append([]string{e.SessionKey}, refs[[2]string{e.Source, e.SourceKey}]...) {
+			if k != "" && !containsString(out, k) {
+				out = append(out, k)
+			}
+		}
+		return out
+	}
+	unique := []string{}
+	seen := map[string]bool{}
+	for _, e := range rows {
+		if e.Source == "wakatime" {
+			continue
+		}
+		for _, k := range sessionsOf(e) {
+			if !seen[k] {
+				seen[k] = true
+				unique = append(unique, k)
+			}
+		}
+	}
+	found, err := s.ledger.SessionPlans(u.ID, unique)
+	if err != nil {
+		return nil, err
+	}
+	return attributePlans(rows, sessionsOf, found), nil
+}
+
+func attributePlans(rows []models.TokenUsageEvent, sessionsOf func(models.TokenUsageEvent) []string, found map[string][]SessionPlanRow) map[[2]string]string {
+	sessionPlan := func(session, group string) string {
+		plan := ""
+		for _, r := range found[session] {
+			if AgentGroup(r.Editor) != group || !isAgentHeartbeat(&models.Heartbeat{Editor: r.Editor, Category: r.Category}) {
+				continue
+			}
+			if r.AISubscriptionPlan == "" || (plan != "" && plan != r.AISubscriptionPlan) {
+				return ""
+			}
+			plan = r.AISubscriptionPlan
+		}
+		return plan
+	}
+	out := map[[2]string]string{}
+	for _, e := range rows {
+		if e.Source == "wakatime" {
+			continue
+		}
+		plan := ""
+		for i, session := range sessionsOf(e) {
+			p := sessionPlan(session, ledgerGroup(e.Source))
+			if p == "" || (i > 0 && p != plan) {
+				plan = ""
+				break
+			}
+			plan = p
+		}
+		if plan != "" {
+			out[[2]string{e.Source, e.SourceKey}] = plan
+		}
+	}
+	return out
 }
 
 func (s *DashboardService) ledgerTokens(u *models.User, from, to time.Time, f DashboardFilters) (*view.DashboardTokens, error) {

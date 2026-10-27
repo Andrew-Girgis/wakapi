@@ -20,14 +20,19 @@ rates were guessed. `WAKAPI_AI_PRICES_FILE` can supply an explicit replacement.
   `cache_creation` split whose 5-minute + 1-hour counts exactly equal the recorded
   write count. Missing, fractional, inconsistent or ambiguous TTLs are unpriced.
 - Optional rate-file keys: `cache_write_5m` and `cache_write_1h`, USD / 1M tokens.
-  Missing keys never imply zero price or an inferred multiplier. The bundled
-  book does not supply these keys, so its cache-write tokens remain unpriced.
+  Missing keys never imply zero price or an inferred multiplier. Since 27 Oct 2026
+  the bundled book supplies both keys for every listed Anthropic model, copied per
+  model from the Anthropic price page and confirmed by the user. Cache writes from
+  sources without a 5m/1h split (Pi, OpenCode) stay unpriced. Duplicate rows for one
+  model (`fable` / `claude-fable`) must carry identical rates, or the model fails closed.
 - Each model and the overall cost reports `priced_tokens` + `unpriced_tokens`
   equal to the corresponding accounted total. Individual values are rounded to
   cents for display; summed unrounded values determine the overall estimate.
-- Subscription/pay-per-token attribution is **unknown** in the ledger, not inferred
-  from a CLI, model, machine, or absence of a plan. The old heartbeat estimate is
-  accessible only through explicit heartbeats display mode.
+- Billing is never inferred from a CLI, model, machine, or absence of a plan. Since
+  27 Oct 2026 cost rows are split by the plan agents *recorded* on their sessions'
+  heartbeats (strict rule in [ACCOUNTING.md](ACCOUNTING.md)); everything else is
+  "plan unknown", never pay-per-token. The old heartbeat estimate is accessible only
+  through explicit heartbeats display mode.
 
 ## Validation and deployment (12–13 Oct 2026)
 
@@ -49,3 +54,13 @@ rates were guessed. `WAKAPI_AI_PRICES_FILE` can supply an explicit replacement.
   as `wakapi-fork:pre-ledger-pricing`. Fresh backup in private `pre-pricing/`.
   Source rollback remains `~/Projects/mnemosyne/bin/dashboard-source heartbeats`
   (same image/database; restart only). Tracking is never redirected or restored.
+
+## Rate update (27 Oct 2026)
+
+- Added `cache_write_5m` / `cache_write_1h` for Opus 5.5 (5 / 8), Opus 5 and 4.5–4.8
+  (6.25 / 10), Sonnet 5.5 and 5 (2.50 / 4), Sonnet 4.5–4.6 (3.75 / 6), Haiku 4.5 (1.25 / 2),
+  Fable 5 and 5.1 (12.50 / 20), USD per 1M tokens.
+- Corrected Sonnet 5.5 cache reads from 0.20 to 0.10 (the page lists 0.10; Sonnet 5 stays 0.20).
+- Added `gpt-6.1-sol`: input 2.00, cached input 0.10, output 10.00 (OpenAI price page).
+  `codex-auto-review` has no public rate and stays unpriced.
+- `TestLedgerPricing_BundledRateBook` loads the bundled file and checks these rates.

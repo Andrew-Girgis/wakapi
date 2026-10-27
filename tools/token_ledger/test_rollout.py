@@ -119,6 +119,18 @@ class RolloutTests(unittest.TestCase):
                             Path('/private/state'),1,DAY_MS,True)
         self.assertIn(b'--send',enabled['wakapi-token-ledger-collector.service'])
         self.assertIn(b'--collect-since-ms',enabled['wakapi-token-ledger-observation.service'])
+        self.assertNotIn(b'ExecStartPre',enabled['wakapi-token-ledger-observation.service'])
+
+    def test_observation_waits_for_dns_instead_of_restarting(self):
+        jobs=render_jobs('linux','/usr/bin/python3',Path('/private/release'),'omphalos',
+                         Path('/private/state'),1,DAY_MS,True,'host.example.ts.net')
+        observation=jobs['wakapi-token-ledger-observation.service'].decode()
+        self.assertIn('getent hosts host.example.ts.net',observation)
+        self.assertIn('TimeoutStartSec=15min',observation)
+        self.assertNotIn('Restart=',observation)
+        self.assertNotIn(b'ExecStartPre',jobs['wakapi-token-ledger-collector.service'])
+        with self.assertRaises(ValueError):
+            render_jobs('linux','/usr/bin/python3',Path('/r'),'m',Path('/s'),1,DAY_MS,True,'x; rm -rf /')
 
     def test_checkpoints_are_bound_to_one_safe_endpoint(self):
         db=sqlite3.connect(':memory:')

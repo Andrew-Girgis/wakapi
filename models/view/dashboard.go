@@ -39,6 +39,8 @@ type DashboardModelCost struct {
 	UnpricedTokens int64                `json:"unpriced_tokens"`
 	Subscription   bool                 `json:"subscription"`
 	Subscriptions  []string             `json:"subscription_plans,omitempty"`
+	// ledger mode: the plan every heartbeat of the event's session(s) recorded, or "" when unknown
+	RecordedPlan string `json:"recorded_plan,omitempty"`
 }
 
 type DashboardAccounting struct {
@@ -54,16 +56,20 @@ type DashboardOptions struct {
 }
 
 type DashboardCost struct {
-	Available               bool                 `json:"available"`
-	PricingBasis            string               `json:"pricing_basis"`
-	BillingAttributionKnown bool                 `json:"billing_attribution_known"`
-	PricedTokens            int64                `json:"priced_tokens"`
-	EstimatedAPIValue       float64              `json:"estimated_api_value"` // all priced tokens at API list prices
-	SubscriptionValue       float64              `json:"subscription_value"`  // part of it used through a subscription plan (not billed per token)
-	PayPerTokenValue        float64              `json:"pay_per_token_value"` // part of it without a subscription plan
-	UnpricedTokens          int64                `json:"unpriced_tokens"`     // tokens of models without a price
-	ByModel                 []DashboardModelCost `json:"by_model"`
-	Currency                string               `json:"currency"`
+	Available               bool    `json:"available"`
+	PricingBasis            string  `json:"pricing_basis"`
+	BillingAttributionKnown bool    `json:"billing_attribution_known"`
+	PricedTokens            int64   `json:"priced_tokens"`
+	EstimatedAPIValue       float64 `json:"estimated_api_value"` // all priced tokens at API list prices
+	SubscriptionValue       float64 `json:"subscription_value"`  // part of it used through a subscription plan (not billed per token)
+	PayPerTokenValue        float64 `json:"pay_per_token_value"` // part of it without a subscription plan
+	// ledger mode ("recorded_plan"): split by the plan agents recorded on their sessions' heartbeats; never pay-per-token
+	Attribution       string               `json:"attribution"` // "recorded_plan" (ledger) or "legacy" (heartbeats)
+	RecordedPlanValue float64              `json:"recorded_plan_value"`
+	PlanUnknownValue  float64              `json:"plan_unknown_value"`
+	UnpricedTokens    int64                `json:"unpriced_tokens"` // tokens of models without a price
+	ByModel           []DashboardModelCost `json:"by_model"`
+	Currency          string               `json:"currency"`
 }
 
 type DashboardOverview struct {
@@ -165,6 +171,7 @@ type DashboardMachine struct {
 }
 
 type DashboardWarning struct {
+	Kind       string    `json:"kind"` // "silent" (no heartbeats for days) or "sync_stalled" (tokens arrive, heartbeats do not)
 	Machine    string    `json:"machine"`
 	Editor     string    `json:"editor"`
 	SilentDays int       `json:"silent_days"`
@@ -172,11 +179,22 @@ type DashboardWarning struct {
 	Message    string    `json:"message"`
 }
 
+// DashboardPipeline compares the two independent pipelines for one (machine, agent group):
+// heartbeats (wakatime-cli AI sync) and counted token ledger events (ledger collector).
+type DashboardPipeline struct {
+	Machine       string     `json:"machine"`
+	Group         string     `json:"group"`
+	LastHeartbeat *time.Time `json:"last_heartbeat"`
+	LastLedger    time.Time  `json:"last_ledger"`
+	Stalled       bool       `json:"stalled"`
+}
+
 type DashboardMachines struct {
-	Now       time.Time          `json:"now"`
-	LiveCount int                `json:"live_count"`
-	Machines  []DashboardMachine `json:"machines"`
-	Warnings  []DashboardWarning `json:"warnings"`
+	Now       time.Time           `json:"now"`
+	LiveCount int                 `json:"live_count"`
+	Machines  []DashboardMachine  `json:"machines"`
+	Warnings  []DashboardWarning  `json:"warnings"`
+	Pipelines []DashboardPipeline `json:"pipelines"`
 }
 
 type DashboardProject struct {

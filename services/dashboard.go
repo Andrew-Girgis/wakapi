@@ -39,6 +39,7 @@ const (
 	dashboardLiveWindow    = 5 * time.Minute
 	dashboardSilentAfter   = 3 * 24 * time.Hour
 	dashboardSilentMinHb   = 20
+	dashboardSyncStallLag  = 60 * time.Minute
 	dashboardSparklineDays = 14
 )
 
@@ -127,8 +128,9 @@ func AgentTool(editor string) string {
 	return ""
 }
 
+// Pi's WakaTime plugin sends its file edits as "coding" (or no category), not "ai coding"; they are agent work too.
 func isAgentHeartbeat(h *models.Heartbeat) bool {
-	return strings.EqualFold(h.Category, models.HeartbeatCategoryAiCoding)
+	return strings.EqualFold(h.Category, models.HeartbeatCategoryAiCoding) || AgentGroup(h.Editor) == GroupPi
 }
 
 // load returns the user's heartbeats in [from, to) after filters, and their activity spans.
@@ -270,7 +272,7 @@ func (srv *DashboardService) Overview(user *models.User, from, to time.Time, fil
 		legacy := out.Tokens
 		out.LegacyTokens = &legacy
 		out.Tokens = ledgerTotals(rows)
-		out.Cost = srv.ledgerCost(rows)
+		out.Cost = srv.ledgerCostAttributed(user, rows)
 		out.CoverageNotes = srv.ledgerNotes(user, rows)
 	}
 	return out, nil
@@ -342,7 +344,7 @@ func (srv *DashboardService) cost(heartbeats []*models.Heartbeat) view.Dashboard
 		}
 	}
 
-	c := view.DashboardCost{Currency: "USD", Available: true, BillingAttributionKnown: true, PricingBasis: "Legacy heartbeat estimate at configured rates; not billed spend", ByModel: []view.DashboardModelCost{}}
+	c := view.DashboardCost{Currency: "USD", Available: true, BillingAttributionKnown: true, Attribution: "legacy", PricingBasis: "Legacy heartbeat estimate at configured rates; not billed spend", ByModel: []view.DashboardModelCost{}}
 	for _, mc := range byKey {
 		mc.Tokens = finishTokens(mc.Tokens)
 		mc.Cost, mc.Priced = srv.pricing.Cost(mc.Model, mc.Version, mc.Tokens.Input, mc.Tokens.CachedInput, mc.Tokens.Output)
@@ -413,7 +415,7 @@ func (srv *DashboardService) Cost(user *models.User, from, to time.Time, filters
 		if err != nil {
 			return nil, err
 		}
-		return &view.DashboardCostResponse{DashboardAccounting: srv.accounting(), Range: view.DashboardRange{From: from, To: to}, Cost: srv.ledgerCost(rows), CoverageNotes: srv.ledgerNotes(user, rows)}, nil
+		return &view.DashboardCostResponse{DashboardAccounting: srv.accounting(), Range: view.DashboardRange{From: from, To: to}, Cost: srv.ledgerCostAttributed(user, rows), CoverageNotes: srv.ledgerNotes(user, rows)}, nil
 	}
 	data, err := srv.load(user, from, to, filters)
 	if err != nil {
@@ -629,6 +631,7 @@ func (srv *DashboardService) Machines(user *models.User, now time.Time) (*view.D
 	machines := map[string]*view.DashboardMachine{}
 	latest := map[string]*models.Heartbeat{}
 	agents := map[agentKey]*view.DashboardAgentSeen{}
+	lastAgentHb := map[[2]string]time.Time{} // (machine, agent group) -> last agent heartbeat
 	for _, h := range data.heartbeats {
 		m, ok := machines[h.Machine]
 		if !ok {
@@ -643,6 +646,9 @@ func (srv *DashboardService) Machines(user *models.User, now time.Time) (*view.D
 		editor, group := h.Editor, GroupYou
 		if isAgentHeartbeat(h) {
 			group = AgentGroup(h.Editor)
+			if k := [2]string{h.Machine, group}; t.After(lastAgentHb[k]) {
+				lastAgentHb[k] = t
+			}
 			if tool := AgentTool(h.Editor); tool != "" {
 				editor = tool
 			}
@@ -667,7 +673,7 @@ func (srv *DashboardService) Machines(user *models.User, now time.Time) (*view.D
 		if silent := now.Sub(a.LastSeen); isTool && a.Heartbeats30d >= dashboardSilentMinHb && silent >= dashboardSilentAfter {
 			days := int(silent.Hours() / 24)
 			out.Warnings = append(out.Warnings, view.DashboardWarning{
-				Machine: k.machine, Editor: a.Editor, SilentDays: days, LastSeen: a.LastSeen,
+				Kind: "silent", Machine: k.machine, Editor: a.Editor, SilentDays: days, LastSeen: a.LastSeen,
 				Message: fmt.Sprintf("%s on %s: silent for %d days", a.Editor, k.machine, days),
 			})
 		}
@@ -687,7 +693,64 @@ func (srv *DashboardService) Machines(user *models.User, now time.Time) (*view.D
 	}
 	sort.Slice(out.Machines, func(i, j int) bool { return out.Machines[i].LastSeen.After(out.Machines[j].LastSeen) })
 	sort.Slice(out.Warnings, func(i, j int) bool { return out.Warnings[i].SilentDays < out.Warnings[j].SilentDays })
+
+	out.Pipelines = []view.DashboardPipeline{}
+	if srv.ledger != nil {
+		// the ledger tables exist in both display modes; a failing ledger query only hides this check
+		if events, err := srv.loadLedger(user, now.Add(-30*24*time.Hour).Truncate(time.Minute), now.Truncate(time.Minute).Add(time.Minute), DashboardFilters{}); err == nil {
+			pipelines, stalled := pipelineHealth(lastAgentHb, events)
+			out.Pipelines = pipelines
+			out.Warnings = append(stalled, out.Warnings...)
+		} else {
+			config.Log().Warn("dashboard pipeline check skipped", "error", err)
+		}
+	}
 	return out, nil
+}
+
+// pipelineHealth flags (machine, agent group) pairs whose token ledger events are more than dashboardSyncStallLag
+// newer than their last agent heartbeat: the agent ran, the ledger collector saw it, but the heartbeat sync did not.
+// WakaTime fallback events have no tool, and Pi is skipped while wakatime-cli cannot parse Pi transcripts.
+func pipelineHealth(lastAgentHb map[[2]string]time.Time, events []models.TokenUsageEvent) ([]view.DashboardPipeline, []view.DashboardWarning) {
+	lastLedger := map[[2]string]time.Time{}
+	for _, e := range events {
+		group := ledgerGroup(e.Source)
+		if e.Source == "wakatime" || group == GroupOther || group == GroupPi {
+			continue
+		}
+		k := [2]string{e.Machine, group}
+		if t := time.UnixMilli(e.OccurredMs); t.After(lastLedger[k]) {
+			lastLedger[k] = t
+		}
+	}
+	pipelines := []view.DashboardPipeline{}
+	warnings := []view.DashboardWarning{}
+	for k, ledgerAt := range lastLedger {
+		p := view.DashboardPipeline{Machine: k[0], Group: k[1], LastLedger: ledgerAt}
+		hbAt, ok := lastAgentHb[k]
+		if ok {
+			p.LastHeartbeat = &hbAt
+		}
+		if p.Stalled = ledgerAt.Sub(hbAt) > dashboardSyncStallLag; p.Stalled {
+			last := "never"
+			if ok {
+				last = hbAt.UTC().Format("2006-01-02 15:04 UTC")
+			}
+			warnings = append(warnings, view.DashboardWarning{
+				Kind: "sync_stalled", Machine: k[0], Editor: k[1], LastSeen: hbAt,
+				Message: fmt.Sprintf("%s on %s: tokens recorded until %s, but heartbeats stop at %s. Check the WakaTime AI sync on that machine.", k[1], k[0], ledgerAt.UTC().Format("2006-01-02 15:04 UTC"), last),
+			})
+		}
+		pipelines = append(pipelines, p)
+	}
+	sort.Slice(pipelines, func(i, j int) bool {
+		if pipelines[i].Machine != pipelines[j].Machine {
+			return pipelines[i].Machine < pipelines[j].Machine
+		}
+		return pipelines[i].Group < pipelines[j].Group
+	})
+	sort.Slice(warnings, func(i, j int) bool { return warnings[i].Message < warnings[j].Message })
+	return pipelines, warnings
 }
 
 func (srv *DashboardService) Projects(user *models.User, from, to time.Time, filters DashboardFilters) (*view.DashboardProjects, error) {
