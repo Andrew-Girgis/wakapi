@@ -29,6 +29,7 @@ import (
 	conf "github.com/muety/wakapi/config"
 	"github.com/muety/wakapi/middlewares"
 	"github.com/muety/wakapi/migrations"
+	"github.com/muety/wakapi/models"
 	"github.com/muety/wakapi/repositories"
 	"github.com/muety/wakapi/routes"
 	"github.com/muety/wakapi/routes/api"
@@ -168,6 +169,10 @@ func main() {
 	// Migrate database schema
 	if !config.SkipMigrations {
 		migrations.Run(db, config)
+		// Separate token ledger: additive tables only; leave heartbeat schema and writes untouched.
+		if err := db.AutoMigrate(&models.TokenUsageEvent{}, &models.TokenUsageSessionRef{}, &models.TokenUsageQuarantinedSession{}, &models.TokenUsageAccountingMode{}, &models.TokenUsageConflict{}); err != nil {
+			conf.Log().Fatal("could not migrate token usage ledger", "error", err)
+		}
 	}
 
 	// Repositories
@@ -205,7 +210,8 @@ func main() {
 	miscService = services.NewMiscService(userService, heartbeatService, summaryService, keyValueService, mailService)
 	webAuthnService = services.NewWebAuthnService(webAuthnRepository)
 	pricingService = services.NewPricingService()
-	dashboardService = services.NewDashboardService(heartbeatService, aliasService, projectLabelService, pricingService)
+	ledgerService := services.NewTokenUsageService(db)
+	dashboardService = services.NewDashboardService(heartbeatService, aliasService, projectLabelService, pricingService, ledgerService)
 
 	if config.App.LeaderboardEnabled {
 		leaderboardService = services.NewLeaderboardService(leaderboardRepository, summaryService, userService)
@@ -235,7 +241,8 @@ func main() {
 	activityHandler := api.NewActivityApiHandler(userService, activityService)
 	badgeHandler := api.NewBadgeHandler(userService, summaryService)
 	captchaHandler := api.NewCaptchaHandler()
-	dashboardApiHandler := api.NewDashboardApiHandler(userService, dashboardService)
+	dashboardApiHandler := api.NewDashboardApiHandler(userService, dashboardService, ledgerService)
+	tokenUsageApiHandler := api.NewTokenUsageApiHandler(userService, ledgerService)
 
 	// Compat Handlers
 	wakatimeV1StatusBarHandler := wtV1Routes.NewStatusBarHandler(userService, summaryService)
@@ -338,6 +345,7 @@ func main() {
 	shieldV1BadgeHandler.RegisterRoutes(apiRouter)
 	captchaHandler.RegisterRoutes(apiRouter)
 	dashboardApiHandler.RegisterRoutes(apiRouter)
+	tokenUsageApiHandler.RegisterRoutes(apiRouter)
 
 	// Static Routes
 	// https://github.com/golang/go/issues/43431
