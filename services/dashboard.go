@@ -45,6 +45,7 @@ const (
 type DashboardFilters struct {
 	Project string
 	Machine string
+	Model   string // token-only filter; activity time is not inferred from model usage
 }
 
 type dashSpan struct {
@@ -67,13 +68,15 @@ type DashboardService struct {
 	aliasSrvc     IAliasService
 	labelSrvc     IProjectLabelService
 	pricing       *PricingService
+	ledger        *TokenUsageService
+	ledgerMu      sync.Mutex
 	cache         *cache.Cache
 	httpClient    *http.Client
 	mnemosyneMu   sync.Mutex
 }
 
-func NewDashboardService(heartbeatService IHeartbeatService, aliasService IAliasService, labelService IProjectLabelService, pricing *PricingService) *DashboardService {
-	return &DashboardService{
+func NewDashboardService(heartbeatService IHeartbeatService, aliasService IAliasService, labelService IProjectLabelService, pricing *PricingService, ledger ...*TokenUsageService) *DashboardService {
+	srv := &DashboardService{
 		config:        config.Get(),
 		heartbeatSrvc: heartbeatService,
 		aliasSrvc:     aliasService,
@@ -82,6 +85,10 @@ func NewDashboardService(heartbeatService IHeartbeatService, aliasService IAlias
 		cache:         cache.New(30*time.Second, time.Minute),
 		httpClient:    &http.Client{Timeout: 3 * time.Second},
 	}
+	if len(ledger) > 0 {
+		srv.ledger = ledger[0]
+	}
+	return srv
 }
 
 // AgentGroup maps an editor name to its dashboard group.
@@ -201,6 +208,11 @@ func (srv *DashboardService) load(user *models.User, from, to time.Time, filters
 // (which Wakapi resolves from the Unix epoch) start at the user's real history.
 func (srv *DashboardService) ClampFrom(user *models.User, from time.Time) time.Time {
 	first, err := srv.heartbeatSrvc.GetFirstByUser(user)
+	if srv.usingLedger() && srv.ledger != nil {
+		if ms, e := srv.ledger.FirstCountedTime(user.ID); e == nil && ms > 0 && (first.IsZero() || time.UnixMilli(ms).Before(first)) {
+			first, err = time.UnixMilli(ms), nil
+		}
+	}
 	if err != nil || first.IsZero() || !first.After(from) {
 		return from
 	}
@@ -242,13 +254,26 @@ func (srv *DashboardService) Overview(user *models.User, from, to time.Time, fil
 		return nil, err
 	}
 
-	return &view.DashboardOverview{
-		Range:         view.DashboardRange{From: from, To: to},
-		Time:          srv.timeStats(data, prev),
-		Tokens:        tokenTotals(data.heartbeats),
-		Cost:          srv.cost(data.heartbeats),
-		CoverageNotes: coverageNotes(from, to),
-	}, nil
+	out := &view.DashboardOverview{
+		DashboardAccounting: srv.accounting(),
+		Range:               view.DashboardRange{From: from, To: to},
+		Time:                srv.timeStats(data, prev),
+		Tokens:              tokenTotals(tokenHeartbeats(data.heartbeats, filters)),
+		Cost:                srv.cost(tokenHeartbeats(data.heartbeats, filters)),
+		CoverageNotes:       coverageNotes(from, to),
+	}
+	if srv.usingLedger() {
+		rows, err := srv.loadLedger(user, from, to, filters)
+		if err != nil {
+			return nil, err
+		}
+		legacy := out.Tokens
+		out.LegacyTokens = &legacy
+		out.Tokens = ledgerTotals(rows)
+		out.Cost = srv.ledgerCost(rows)
+		out.CoverageNotes = srv.ledgerNotes(user, rows)
+	}
+	return out, nil
 }
 
 func (srv *DashboardService) timeStats(data, prev *dashData) view.DashboardTime {
@@ -288,7 +313,7 @@ func addTokens(t *view.DashboardTokenTotals, h *models.Heartbeat) {
 }
 
 func finishTokens(t view.DashboardTokenTotals) view.DashboardTokenTotals {
-	t.Total = t.Input + t.CachedInput + t.Output
+	t.Total = t.Input + t.CachedInput + t.CacheWrite + t.UnknownInput + t.Output
 	if t.Total > 0 {
 		t.CachedPercent = round1(100 * float64(t.CachedInput) / float64(t.Total))
 	}
@@ -317,12 +342,16 @@ func (srv *DashboardService) cost(heartbeats []*models.Heartbeat) view.Dashboard
 		}
 	}
 
-	c := view.DashboardCost{Currency: "USD", ByModel: []view.DashboardModelCost{}}
+	c := view.DashboardCost{Currency: "USD", Available: true, BillingAttributionKnown: true, PricingBasis: "Legacy heartbeat estimate at configured rates; not billed spend", ByModel: []view.DashboardModelCost{}}
 	for _, mc := range byKey {
 		mc.Tokens = finishTokens(mc.Tokens)
 		mc.Cost, mc.Priced = srv.pricing.Cost(mc.Model, mc.Version, mc.Tokens.Input, mc.Tokens.CachedInput, mc.Tokens.Output)
 		if !mc.Priced {
+			mc.UnpricedTokens = mc.Tokens.Total
 			c.UnpricedTokens += mc.Tokens.Total
+		} else {
+			mc.PricedTokens = mc.Tokens.Total
+			c.PricedTokens += mc.Tokens.Total
 		}
 		c.EstimatedAPIValue += mc.Cost
 		if mc.Subscription {
@@ -338,6 +367,9 @@ func (srv *DashboardService) cost(heartbeats []*models.Heartbeat) view.Dashboard
 }
 
 func (srv *DashboardService) Tokens(user *models.User, from, to time.Time, filters DashboardFilters) (*view.DashboardTokens, error) {
+	if srv.usingLedger() {
+		return srv.ledgerTokens(user, from, to, filters)
+	}
 	data, err := srv.load(user, from, to, filters)
 	if err != nil {
 		return nil, err
@@ -348,7 +380,7 @@ func (srv *DashboardService) Tokens(user *models.User, from, to time.Time, filte
 		byDay[i].Date = d.Format("2006-01-02")
 	}
 	byModel := map[string]view.DashboardTokenTotals{}
-	for _, h := range data.heartbeats {
+	for _, h := range tokenHeartbeats(data.heartbeats, filters) {
 		if i := dayIndex(days, h.Time.T()); i >= 0 {
 			addTokens(&byDay[i].Tokens, h)
 		}
@@ -366,23 +398,32 @@ func (srv *DashboardService) Tokens(user *models.User, from, to time.Time, filte
 		byModel[k] = finishTokens(t)
 	}
 	return &view.DashboardTokens{
-		Range:         view.DashboardRange{From: from, To: to},
-		Totals:        tokenTotals(data.heartbeats),
-		ByDay:         byDay,
-		ByModel:       byModel,
-		CoverageNotes: coverageNotes(from, to),
+		DashboardAccounting: srv.accounting(),
+		Range:               view.DashboardRange{From: from, To: to},
+		Totals:              tokenTotals(tokenHeartbeats(data.heartbeats, filters)),
+		ByDay:               byDay,
+		ByModel:             byModel,
+		CoverageNotes:       coverageNotes(from, to),
 	}, nil
 }
 
 func (srv *DashboardService) Cost(user *models.User, from, to time.Time, filters DashboardFilters) (*view.DashboardCostResponse, error) {
+	if srv.usingLedger() {
+		rows, err := srv.loadLedger(user, from, to, filters)
+		if err != nil {
+			return nil, err
+		}
+		return &view.DashboardCostResponse{DashboardAccounting: srv.accounting(), Range: view.DashboardRange{From: from, To: to}, Cost: srv.ledgerCost(rows), CoverageNotes: srv.ledgerNotes(user, rows)}, nil
+	}
 	data, err := srv.load(user, from, to, filters)
 	if err != nil {
 		return nil, err
 	}
 	return &view.DashboardCostResponse{
-		Range:         view.DashboardRange{From: from, To: to},
-		Cost:          srv.cost(data.heartbeats),
-		CoverageNotes: coverageNotes(from, to),
+		DashboardAccounting: srv.accounting(),
+		Range:               view.DashboardRange{From: from, To: to},
+		Cost:                srv.cost(tokenHeartbeats(data.heartbeats, filters)),
+		CoverageNotes:       coverageNotes(from, to),
 	}, nil
 }
 
@@ -445,9 +486,10 @@ func (srv *DashboardService) Activity(user *models.User, from, to time.Time, fil
 	tz := user.TZ()
 	days := dayStarts(from, to, tz)
 	out := &view.DashboardActivity{
-		Range:  view.DashboardRange{From: from, To: to},
-		Groups: DashboardGroups,
-		Days:   make([]view.DashboardActivityDay, len(days)),
+		DashboardAccounting: srv.accounting(),
+		Range:               view.DashboardRange{From: from, To: to},
+		Groups:              DashboardGroups,
+		Days:                make([]view.DashboardActivityDay, len(days)),
 	}
 
 	byGroup := map[string][]Interval{}
@@ -465,7 +507,7 @@ func (srv *DashboardService) Activity(user *models.User, from, to time.Time, fil
 		}
 	}
 	for _, h := range data.heartbeats {
-		if i := dayIndex(days, h.Time.T()); i >= 0 && isAgentHeartbeat(h) {
+		if i := dayIndex(days, h.Time.T()); i >= 0 && isAgentHeartbeat(h) && heartbeatMatchesModel(h, filters.Model) {
 			out.Days[i].Tokens[AgentGroup(h.Editor)] += int64(h.AIInputTokens + h.AICachedInputTokens + h.AIOutputTokens)
 		}
 	}
@@ -486,6 +528,21 @@ func (srv *DashboardService) Activity(user *models.User, from, to time.Time, fil
 
 	out.Sessions = sessionStats(data.heartbeats, user.HeartbeatsTimeout(), tz)
 	out.Sessions.Range = out.Range
+	if srv.usingLedger() {
+		rows, err := srv.loadLedger(user, from, to, filters)
+		if err != nil {
+			return nil, err
+		}
+		out.Groups = append(append([]string{}, DashboardGroups...), "WakaTime fallback")
+		for i := range out.Days {
+			out.Days[i].Tokens = map[string]int64{}
+		}
+		for _, e := range rows {
+			if i := dayIndex(days, time.UnixMilli(e.OccurredMs)); i >= 0 {
+				out.Days[i].Tokens[ledgerGroup(e.Source)] += ledgerEventTotal(e)
+			}
+		}
+	}
 	return out, nil
 }
 
@@ -644,7 +701,7 @@ func (srv *DashboardService) Projects(user *models.User, from, to time.Time, fil
 		days = days[len(days)-dashboardSparklineDays:]
 	}
 
-	out := &view.DashboardProjects{Range: view.DashboardRange{From: from, To: to}, Projects: []view.DashboardProject{}}
+	out := &view.DashboardProjects{DashboardAccounting: srv.accounting(), Range: view.DashboardRange{From: from, To: to}, Projects: []view.DashboardProject{}}
 	for _, d := range days {
 		out.Days = append(out.Days, d.Format("2006-01-02"))
 	}
@@ -665,13 +722,14 @@ func (srv *DashboardService) Projects(user *models.User, from, to time.Time, fil
 			continue
 		}
 		p := view.DashboardProject{
-			Name:         project,
-			Status:       statuses[strings.ToLower(project)],
-			Seconds:      TotalDuration(ivs[project]).Seconds(),
-			Tokens:       tokenTotals(hbs).Total,
-			Cost:         srv.cost(hbs).EstimatedAPIValue,
-			LastActive:   hbs[len(hbs)-1].Time.T(),
-			DailySeconds: make([]float64, len(days)),
+			Name:          project,
+			Status:        statuses[strings.ToLower(project)],
+			Seconds:       TotalDuration(ivs[project]).Seconds(),
+			Tokens:        tokenTotals(tokenHeartbeats(hbs, filters)).Total,
+			Cost:          srv.cost(tokenHeartbeats(hbs, filters)).EstimatedAPIValue,
+			CostAvailable: true,
+			LastActive:    hbs[len(hbs)-1].Time.T(),
+			DailySeconds:  make([]float64, len(days)),
 		}
 		for i, d := range days {
 			p.DailySeconds[i] = TotalDuration(ClipIntervals(ivs[project], d, d.AddDate(0, 0, 1))).Seconds()
@@ -680,7 +738,17 @@ func (srv *DashboardService) Projects(user *models.User, from, to time.Time, fil
 			out.Projects = append(out.Projects, p)
 		}
 	}
-	sort.Slice(out.Projects, func(i, j int) bool { return out.Projects[i].Seconds > out.Projects[j].Seconds })
+	if srv.usingLedger() {
+		if err := srv.applyLedgerProjects(user, from, to, filters, out, statuses); err != nil {
+			return nil, err
+		}
+	}
+	sort.Slice(out.Projects, func(i, j int) bool {
+		if out.Projects[i].Seconds == out.Projects[j].Seconds {
+			return out.Projects[i].Name < out.Projects[j].Name
+		}
+		return out.Projects[i].Seconds > out.Projects[j].Seconds
+	})
 	return out, nil
 }
 

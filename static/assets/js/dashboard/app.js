@@ -1,4 +1,4 @@
-import { GROUP_COLORS, renderActivity } from './charts.js'
+import { GROUP_COLORS, renderActivity } from './charts.js?v=ledger-v1'
 
 // Activity dashboard (/dashboard). Each panel fetches its own endpoint under api/dashboard/,
 // so a slow or failing panel never blocks the others.
@@ -10,6 +10,8 @@ const PANELS = {
     machines: () => 'api/dashboard/machines',
     projects: () => `api/dashboard/projects?${rangeQuery()}`,
     cost: () => `api/dashboard/cost?${rangeQuery()}`,
+    ledger: () => `api/dashboard/ledger?${rangeQuery()}`,
+    options: () => 'api/dashboard/options',
 }
 
 const TABS = [
@@ -33,6 +35,7 @@ const state = PetiteVue.reactive({
     range: initialRange(),
     project: params.get('project') || '',
     machine: params.get('machine') || '',
+    model: params.get('model') || '',
 })
 
 // query string for the current range and filters, shared by all range-based panels
@@ -44,6 +47,7 @@ function rangeQuery() {
     else if (kind === 'from') { q.set('from', a); q.set('to', b) }
     if (state.project) q.set('project', state.project)
     if (state.machine) q.set('machine', state.machine)
+    if (state.model) q.set('model', state.model)
     return q.toString()
 }
 
@@ -95,6 +99,9 @@ const app = {
     tabs: TABS,
     tab: (window.location.hash || '#overview').slice(1),
     timeZone: dashboardTimeZone,
+    tokenSource: dashboardTokenSource,
+    get ledgerMode() { return this.tokenSource === 'ledger' },
+    get accountingLabel() { return this.ledgerMode ? 'Ledger · provisional accounted usage' : 'Legacy heartbeat accounting' },
     panels: Object.fromEntries(Object.keys(PANELS).map(k => [k, { loading: false, error: null, data: null }])),
 
     get range() { return state.range },
@@ -103,6 +110,9 @@ const app = {
     set project(v) { state.project = v },
     get machine() { return state.machine },
     set machine(v) { state.machine = v },
+    get model() { return state.model },
+    set model(v) { state.model = v },
+    get modelOptions() { const names = [...(this.panels.options.data?.models || [])]; if (state.model && !names.includes(state.model)) names.push(state.model); return names },
 
     get ov() { return this.panels.overview.data },
     get act() { return this.panels.activity.data },
@@ -124,7 +134,13 @@ const app = {
     // groups under 1 % are folded into "Other", like the mockup
     get shareRows() {
         const rows = [], other = { group: 'Other', seconds: 0, percent: 0 }
-        for (const s of this.act?.share || []) {
+        let shares = this.act?.share || []
+        if (this.activityMode === 'tokens' && this.act) {
+            const totals = this.act.groups.map(group => ({ group, tokens: this.act.days.reduce((n, d) => n + (d.tokens[group] || 0), 0) }))
+            const total = totals.reduce((n, d) => n + d.tokens, 0)
+            shares = totals.filter(d => d.tokens > 0).map(d => ({ group: d.group, seconds: d.tokens, percent: total ? d.tokens / total * 100 : 0 }))
+        }
+        for (const s of shares) {
             if (s.group !== 'Other' && s.percent >= 1) rows.push(s)
             else { other.seconds += s.seconds; other.percent += s.percent }
         }
@@ -204,7 +220,12 @@ const app = {
         return values.map((v, i) => `${n === 1 ? w / 2 : (i / (n - 1)) * w},${(h - 3 - (v / max) * (h - 6)).toFixed(1)}`).join(' ')
     },
     get cs() { return this.panels.cost.data },
-    get costRows() { return (this.cs?.cost.by_model || []).filter(m => m.tokens.total > 0).slice(0, 8) },
+    get lg() { return this.panels.ledger.data },
+    get ledgerDelta() { return this.ov?.legacy_tokens ? this.ov.tokens.total - this.ov.legacy_tokens.total : (this.lg && this.ov ? this.lg.total_tokens - this.ov.tokens.total : null) },
+    get tokenDetail() { const t = this.ov?.tokens; return t ? `${fmt.int(t.input)} new input · ${fmt.int(t.cached_input)} cache read · ${fmt.int(t.cache_write)} cache write · ${fmt.int(t.unknown_input)} unknown input · ${fmt.int(t.output)} output` : '' },
+    modelsExpanded: false,
+    get allCostRows() { return (this.cs?.cost.by_model || []).filter(m => m.tokens.total > 0) },
+    get costRows() { return this.modelsExpanded ? this.allCostRows : this.allCostRows.slice(0, 8) },
     modelLabel(m) { return m.model ? `${m.model} ${m.version}`.trim() : '(no model)' },
 
     get mc() { return this.panels.machines.data },
@@ -256,12 +277,12 @@ const app = {
         return m.map(x => `${x.name}: ${x.live ? 'live' : 'last seen ' + new Date(x.last_seen).toLocaleString()}`).join('\n')
     },
     get machineOptions() {
-        const names = (this.panels.machines.data?.machines || []).map(m => m.name)
+        const names = [...(this.panels.options.data?.machines || [])]
         if (state.machine && !names.includes(state.machine)) names.push(state.machine)
         return names
     },
     get projectOptions() {
-        const names = (this.panels.projects.data?.projects || []).map(p => p.name)
+        const names = [...(this.panels.options.data?.projects || [])]
         if (state.project && !names.includes(state.project)) names.unshift(state.project)
         return names
     },
@@ -273,18 +294,28 @@ const app = {
 
     async load(name) {
         const panel = this.panels[name]
+        const requestID = (panel.requestID || 0) + 1
+        panel.requestID = requestID
         panel.loading = true
         panel.error = null
+        const url = PANELS[name]()
+        if (panel.url !== url) panel.data = null // never show old-scope data while loading
+        panel.url = url
         try {
-            const res = await fetch(PANELS[name]())
+            const res = await fetch(url)
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            panel.data = await res.json()
-            window.dispatchEvent(new CustomEvent('dashboard:loaded', { detail: { name, data: panel.data } }))
+            const data = await res.json()
+            if (panel.requestID !== requestID) return
+            if (['overview', 'activity', 'projects', 'cost', 'options'].includes(name) && data.token_source !== this.tokenSource) throw new Error('Accounting mode changed; reload the page')
+            panel.data = data
+            window.dispatchEvent(new CustomEvent('dashboard:loaded', { detail: { name, data } }))
         } catch (e) {
+            if (panel.requestID !== requestID) return
+            panel.data = null
             console.error(`dashboard panel ${name} failed`, e)
             panel.error = String(e)
         } finally {
-            panel.loading = false
+            if (panel.requestID === requestID) panel.loading = false
         }
     },
 

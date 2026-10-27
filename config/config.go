@@ -128,7 +128,8 @@ type appConfig struct {
 	// hostname -> machine name, so that one machine reporting several hostnames (e.g. "Mac", "Pythia.local") shows up once
 	MachineAliases map[string]string `yaml:"machine_aliases"`
 	// optional path to a price list replacing the built-in one (config/ai_prices.yml), never fetched from the network
-	AIPricesFile string `yaml:"ai_prices_file" env:"WAKAPI_AI_PRICES_FILE"`
+	AIPricesFile         string `yaml:"ai_prices_file" env:"WAKAPI_AI_PRICES_FILE"`
+	DashboardTokenSource string `yaml:"dashboard_token_source" default:"heartbeats" env:"WAKAPI_DASHBOARD_TOKEN_SOURCE"`
 	// optional: read project status (lifecycle) for the dashboard from Mnemosyne instead of project labels
 	MnemosyneURL   string `yaml:"mnemosyne_url" env:"WAKAPI_MNEMOSYNE_URL"`
 	MnemosyneToken string `yaml:"mnemosyne_token" env:"WAKAPI_MNEMOSYNE_TOKEN"`
@@ -683,6 +684,9 @@ func Load(configFlag string, version string) *Config {
 	}
 
 	// some validation checks
+	if source := config.App.TokenSource(); source != "ledger" && source != "heartbeats" {
+		Log().Fatal("dashboard_token_source must be ledger or heartbeats")
+	}
 	if config.Server.ListenIpV4 == "-" && config.Server.ListenIpV6 == "-" && config.Server.ListenSocket == "" {
 		Log().Fatal("either of listen_ipv4 or listen_ipv6 or listen_socket must be set")
 	}
@@ -755,6 +759,14 @@ func Load(configFlag string, version string) *Config {
 	InitializeCookies()
 
 	return Get()
+}
+
+// TokenSource is explicit and never changes automatically when a ledger query fails.
+func (c *appConfig) TokenSource() string {
+	if c.DashboardTokenSource == "" {
+		return "heartbeats"
+	}
+	return c.DashboardTokenSource
 }
 
 func Empty() *Config {

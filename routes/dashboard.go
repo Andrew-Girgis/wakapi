@@ -41,7 +41,8 @@ func (h *DashboardHandler) GetIndex(w http.ResponseWriter, r *http.Request) {
 			SharedViewModel: view.NewSharedViewModel(h.config, nil),
 			User:            user,
 		},
-		TimeZone: user.TZ().String(),
+		TimeZone:    user.TZ().String(),
+		TokenSource: h.config.App.TokenSource(),
 	}
 	if err := templates[conf.DashboardTemplate].Execute(w, vm); err != nil {
 		conf.Log().Request(r).Error("failed to render dashboard page", "error", err)

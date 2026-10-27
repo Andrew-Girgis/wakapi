@@ -12,6 +12,8 @@ type DashboardRange struct {
 type DashboardTokenTotals struct {
 	Input         int64   `json:"input"`        // new input tokens (incl. cache writes, as counted by wakatime-cli)
 	CachedInput   int64   `json:"cached_input"` // cache read tokens
+	CacheWrite    int64   `json:"cache_write"`
+	UnknownInput  int64   `json:"unknown_input"`
 	Output        int64   `json:"output"`
 	Total         int64   `json:"total"`
 	CachedPercent float64 `json:"cached_percent"`
@@ -28,33 +30,54 @@ type DashboardTime struct {
 }
 
 type DashboardModelCost struct {
-	Model         string               `json:"model"`
-	Version       string               `json:"version"`
-	Tokens        DashboardTokenTotals `json:"tokens"`
-	Cost          float64              `json:"cost"`
-	Priced        bool                 `json:"priced"`
-	Subscription  bool                 `json:"subscription"`
-	Subscriptions []string             `json:"subscription_plans,omitempty"`
+	Model          string               `json:"model"`
+	Version        string               `json:"version"`
+	Tokens         DashboardTokenTotals `json:"tokens"`
+	Cost           float64              `json:"cost"`
+	Priced         bool                 `json:"priced"`
+	PricedTokens   int64                `json:"priced_tokens"`
+	UnpricedTokens int64                `json:"unpriced_tokens"`
+	Subscription   bool                 `json:"subscription"`
+	Subscriptions  []string             `json:"subscription_plans,omitempty"`
+}
+
+type DashboardAccounting struct {
+	TokenSource string `json:"token_source"`
+	Provisional bool   `json:"provisional"`
+}
+
+type DashboardOptions struct {
+	DashboardAccounting
+	Projects []string `json:"projects"`
+	Machines []string `json:"machines"`
+	Models   []string `json:"models"`
 }
 
 type DashboardCost struct {
-	EstimatedAPIValue float64              `json:"estimated_api_value"` // all priced tokens at API list prices
-	SubscriptionValue float64              `json:"subscription_value"`  // part of it used through a subscription plan (not billed per token)
-	PayPerTokenValue  float64              `json:"pay_per_token_value"` // part of it without a subscription plan
-	UnpricedTokens    int64                `json:"unpriced_tokens"`     // tokens of models without a price
-	ByModel           []DashboardModelCost `json:"by_model"`
-	Currency          string               `json:"currency"`
+	Available               bool                 `json:"available"`
+	PricingBasis            string               `json:"pricing_basis"`
+	BillingAttributionKnown bool                 `json:"billing_attribution_known"`
+	PricedTokens            int64                `json:"priced_tokens"`
+	EstimatedAPIValue       float64              `json:"estimated_api_value"` // all priced tokens at API list prices
+	SubscriptionValue       float64              `json:"subscription_value"`  // part of it used through a subscription plan (not billed per token)
+	PayPerTokenValue        float64              `json:"pay_per_token_value"` // part of it without a subscription plan
+	UnpricedTokens          int64                `json:"unpriced_tokens"`     // tokens of models without a price
+	ByModel                 []DashboardModelCost `json:"by_model"`
+	Currency                string               `json:"currency"`
 }
 
 type DashboardOverview struct {
-	Range         DashboardRange       `json:"range"`
-	Time          DashboardTime        `json:"time"`
-	Tokens        DashboardTokenTotals `json:"tokens"`
-	Cost          DashboardCost        `json:"cost"`
-	CoverageNotes []string             `json:"coverage_notes"`
+	DashboardAccounting
+	LegacyTokens  *DashboardTokenTotals `json:"legacy_tokens,omitempty"`
+	Range         DashboardRange        `json:"range"`
+	Time          DashboardTime         `json:"time"`
+	Tokens        DashboardTokenTotals  `json:"tokens"`
+	Cost          DashboardCost         `json:"cost"`
+	CoverageNotes []string              `json:"coverage_notes"`
 }
 
 type DashboardTokens struct {
+	DashboardAccounting
 	Range         DashboardRange                  `json:"range"`
 	Totals        DashboardTokenTotals            `json:"totals"`
 	ByDay         []DashboardDayTokens            `json:"by_day"`
@@ -68,6 +91,7 @@ type DashboardDayTokens struct {
 }
 
 type DashboardCostResponse struct {
+	DashboardAccounting
 	Range         DashboardRange `json:"range"`
 	Cost          DashboardCost  `json:"cost"`
 	CoverageNotes []string       `json:"coverage_notes"`
@@ -94,6 +118,7 @@ type DashboardShare struct {
 }
 
 type DashboardActivity struct {
+	DashboardAccounting
 	Range    DashboardRange         `json:"range"`
 	Groups   []string               `json:"groups"`
 	Days     []DashboardActivityDay `json:"days"`
@@ -155,16 +180,19 @@ type DashboardMachines struct {
 }
 
 type DashboardProject struct {
-	Name         string    `json:"name"`
-	Status       string    `json:"status"` // active, paused, done or empty
-	Seconds      float64   `json:"seconds"`
-	Tokens       int64     `json:"tokens"`
-	Cost         float64   `json:"cost"`
-	LastActive   time.Time `json:"last_active"`
-	DailySeconds []float64 `json:"daily_seconds"` // one value per entry in DashboardProjects.Days
+	Name           string    `json:"name"`
+	Status         string    `json:"status"` // active, paused, done or empty
+	Seconds        float64   `json:"seconds"`
+	Tokens         int64     `json:"tokens"`
+	Cost           float64   `json:"cost"`
+	CostAvailable  bool      `json:"cost_available"`
+	UnpricedTokens int64     `json:"unpriced_tokens"`
+	LastActive     time.Time `json:"last_active"`
+	DailySeconds   []float64 `json:"daily_seconds"` // one value per entry in DashboardProjects.Days
 }
 
 type DashboardProjects struct {
+	DashboardAccounting
 	Range        DashboardRange     `json:"range"`
 	Days         []string           `json:"days"`
 	Projects     []DashboardProject `json:"projects"`
@@ -174,7 +202,8 @@ type DashboardProjects struct {
 // DashboardViewModel renders the /dashboard page shell; all data is loaded by the panels from /api/dashboard/*.
 type DashboardViewModel struct {
 	SharedLoggedInViewModel
-	TimeZone string
+	TimeZone    string
+	TokenSource string
 }
 
 func (s *DashboardViewModel) WithSuccess(m string) *DashboardViewModel {
