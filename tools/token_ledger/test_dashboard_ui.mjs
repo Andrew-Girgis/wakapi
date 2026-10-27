@@ -5,6 +5,7 @@ globalThis.dashboardTimeZone = 'America/Toronto'
 globalThis.dashboardTokenSource = 'ledger'
 globalThis.PetiteVue = { reactive: value => value }
 globalThis.window = { location: { search: '', hash: '' }, addEventListener() {}, dispatchEvent() {} }
+globalThis.document = { getElementById: () => null }
 globalThis.CustomEvent = class { constructor(type, options) { this.type = type; this.detail = options.detail } }
 const { app, state, rangeQuery } = await import('../../static/assets/js/dashboard/app.js')
 
@@ -41,4 +42,47 @@ test('accounting mismatch is unavailable, never silent heartbeat fallback', asyn
  try { await app.load('overview') } finally { console.error = old }
  assert.equal(app.ov, null)
  assert.match(app.panels.overview.error, /Accounting mode changed/)
+})
+
+test('agent filter is part of the scope', () => {
+ state.agent = 'Codex'
+ assert.equal(new URLSearchParams(rangeQuery()).get('agent'), 'Codex')
+ state.agent = ''
+ assert.equal(new URLSearchParams(rangeQuery()).has('agent'), false)
+})
+
+test('a tab loads its own panels once, other tabs stay unloaded', async () => {
+ const urls = []
+ globalThis.fetch = async url => { urls.push(url.split('?')[0]); return { ok: true, json: async () => ({ token_source: 'ledger', projects: [], machines: [], warnings: [] }) } }
+ for (const p of Object.values(app.panels)) { p.url = undefined; p.data = null; p.error = null }
+ app.setTab('agents')
+ await new Promise(r => setTimeout(r, 0))
+ assert.deepEqual([...urls].sort(), ['api/dashboard/activity', 'api/dashboard/agents', 'api/dashboard/machines', 'api/dashboard/options', 'api/dashboard/overview'])
+ urls.length = 0
+ app.setTab('agents')
+ await new Promise(r => setTimeout(r, 0))
+ assert.deepEqual(urls, []) // already loaded for this scope
+ app.setTab('projects')
+ await new Promise(r => setTimeout(r, 0))
+ assert.deepEqual(urls, ['api/dashboard/projects'])
+})
+
+test('projects tab sorts every row by the chosen column', () => {
+ app.tab = 'projects'
+ app.panels.projects.data = { projects: Array.from({ length: 8 }, (_, i) => ({ name: 'p' + i, seconds: i, tokens: 8 - i, cost: 0 })) }
+ assert.equal(app.projectRows.length, 8)
+ assert.equal(app.projectRows[0].name, 'p7') // default: time, descending
+ app.sortProjects('tokens')
+ assert.equal(app.projectRows[0].name, 'p0')
+ app.sortProjects('tokens')
+ assert.equal(app.projectRows[0].name, 'p7') // second click flips
+ app.tab = 'overview'
+ assert.equal(app.projectRows.length, 6)
+})
+
+test('value per agent hour divides by agent time only', () => {
+ app.panels.overview.data = { time: { agent_seconds: 7200 }, cost: { available: true, estimated_api_value: 30 } }
+ assert.equal(app.costPerAgentHour, 15)
+ app.panels.overview.data = { time: { agent_seconds: 0 }, cost: { available: true, estimated_api_value: 30 } }
+ assert.equal(app.costPerAgentHour, null)
 })

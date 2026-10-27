@@ -20,6 +20,9 @@ func (s *DashboardService) LedgerSummary(u *models.User, from, to time.Time, f D
 		return out, err
 	}
 	for _, e := range held {
+		if f.Agent != "" { // held observations are WakaTime fallback, which has no tool
+			continue
+		}
 		if f.Machine != "" && !strings.EqualFold(f.Machine, s.machineName(u, e.Machine)) {
 			continue
 		}

@@ -1,4 +1,4 @@
-import { GROUP_COLORS, renderActivity } from './charts.js?v=ledger-v1'
+import { GROUP_COLORS, TOKEN_BUCKETS, renderActivity, renderTokenDays } from './charts.js?v=plan2-v1'
 
 // Activity dashboard (/dashboard). Each panel fetches its own endpoint under api/dashboard/,
 // so a slow or failing panel never blocks the others.
@@ -12,7 +12,22 @@ const PANELS = {
     cost: () => `api/dashboard/cost?${rangeQuery()}`,
     ledger: () => `api/dashboard/ledger?${rangeQuery()}`,
     options: () => 'api/dashboard/options',
+    breakdown: () => `api/dashboard/breakdown?${rangeQuery()}`,
+    tokens: () => `api/dashboard/tokens?${rangeQuery()}`,
+    agents: () => `api/dashboard/agents?${rangeQuery()}`,
 }
+
+// panels each tab shows; a tab's panels load when it is first shown and again after a filter change
+const TAB_PANELS = {
+    overview: ['overview', 'activity', 'timeline', 'projects', 'cost', 'ledger', 'breakdown'],
+    tokens: ['overview', 'tokens', 'cost', 'ledger', 'projects'],
+    agents: ['activity', 'agents'],
+    projects: ['projects'],
+    machines: [],
+}
+const ALWAYS = ['overview', 'machines', 'options'] // header: range label, live machines and filter options
+
+const AGENTS = ['Claude Code', 'Codex', 'Pi', 'OpenCode']
 
 const TABS = [
     { id: 'overview', label: 'Overview' },
@@ -36,6 +51,7 @@ const state = PetiteVue.reactive({
     project: params.get('project') || '',
     machine: params.get('machine') || '',
     model: params.get('model') || '',
+    agent: params.get('agent') || '',
 })
 
 // query string for the current range and filters, shared by all range-based panels
@@ -48,6 +64,7 @@ function rangeQuery() {
     if (state.project) q.set('project', state.project)
     if (state.machine) q.set('machine', state.machine)
     if (state.model) q.set('model', state.model)
+    if (state.agent) q.set('agent', state.agent)
     return q.toString()
 }
 
@@ -68,6 +85,7 @@ function timelineQuery() {
     const q = new URLSearchParams({ date: timelineState.date })
     if (state.project) q.set('project', state.project)
     if (state.machine) q.set('machine', state.machine)
+    if (state.agent) q.set('agent', state.agent)
     return q.toString()
 }
 
@@ -97,7 +115,9 @@ export const fmt = {
 const app = {
     $delimiters: ['${', '}'],
     tabs: TABS,
-    tab: (window.location.hash || '#overview').slice(1),
+    tab: TABS.some(t => '#' + t.id === window.location.hash) ? window.location.hash.slice(1) : 'overview',
+    agentOptions: AGENTS,
+    tokenBuckets: TOKEN_BUCKETS,
     timeZone: dashboardTimeZone,
     tokenSource: dashboardTokenSource,
     get ledgerMode() { return this.tokenSource === 'ledger' },
@@ -112,6 +132,8 @@ const app = {
     set machine(v) { state.machine = v },
     get model() { return state.model },
     set model(v) { state.model = v },
+    get agent() { return state.agent },
+    set agent(v) { state.agent = v },
     get modelOptions() { const names = [...(this.panels.options.data?.models || [])]; if (state.model && !names.includes(state.model)) names.push(state.model); return names },
 
     get ov() { return this.panels.overview.data },
@@ -205,10 +227,19 @@ const app = {
     },
     get pj() { return this.panels.projects.data },
     projectsExpanded: false,
+    projectSort: { key: 'seconds', desc: true },
     get projectRows() {
         const rows = this.pj?.projects || []
-        return this.projectsExpanded ? rows : rows.slice(0, 6)
+        if (this.tab !== 'projects') return this.projectsExpanded ? rows : rows.slice(0, 6)
+        const { key, desc } = this.projectSort
+        const value = p => key === 'name' ? (p.name || '').toLowerCase() : key === 'last_active' ? new Date(p.last_active).getTime() || 0 : p[key] || 0
+        return [...rows].sort((a, b) => (value(a) < value(b) ? -1 : value(a) > value(b) ? 1 : 0) * (desc ? -1 : 1))
     },
+    sortProjects(key) {
+        this.projectSort = { key, desc: this.projectSort.key === key ? !this.projectSort.desc : key !== 'name' }
+    },
+    sortMark(key) { return this.projectSort.key === key ? (this.projectSort.desc ? ' ↓' : ' ↑') : '' },
+    get projectsByCost() { return [...(this.pj?.projects || [])].filter(p => p.tokens > 0).sort((a, b) => b.cost - a.cost || b.tokens - a.tokens) },
     statusLabel(status) {
         return status ? status[0].toUpperCase() + status.slice(1) : '—'
     },
@@ -225,7 +256,7 @@ const app = {
     get tokenDetail() { const t = this.ov?.tokens; return t ? `${fmt.int(t.input)} new input · ${fmt.int(t.cached_input)} cache read · ${fmt.int(t.cache_write)} cache write · ${fmt.int(t.unknown_input)} unknown input · ${fmt.int(t.output)} output` : '' },
     modelsExpanded: false,
     get allCostRows() { return (this.cs?.cost.by_model || []).filter(m => m.tokens.total > 0) },
-    get costRows() { return this.modelsExpanded ? this.allCostRows : this.allCostRows.slice(0, 8) },
+    get costRows() { return this.modelsExpanded || this.tab === 'tokens' ? this.allCostRows : this.allCostRows.slice(0, 8) },
     modelLabel(m) { return m.model ? `${m.model} ${m.version}`.trim() : '(no model)' },
     // ledger: the plan recorded on the session's heartbeats, never "pay per token"; heartbeats: legacy split
     planLabel(m) {
@@ -234,6 +265,34 @@ const app = {
     },
 
     get mc() { return this.panels.machines.data },
+    pipelineFor(m) { return (this.mc?.pipelines || []).filter(p => p.machine === m.name) },
+
+    get bd() { return this.panels.breakdown.data },
+    get tk() { return this.panels.tokens.data },
+    get ag() { return this.panels.agents.data },
+    // API value per hour of agent time in the range (agent time is a union, so parallel agents count once)
+    get costPerAgentHour() {
+        const o = this.ov
+        if (!o || !o.cost.available || !o.time.agent_seconds) return null
+        return o.cost.estimated_api_value / (o.time.agent_seconds / 3600)
+    },
+    get rhythmMax() {
+        const b = this.bd
+        if (!b) return 1
+        return Math.max(1, ...b.rhythm_agents.map((row, d) => Math.max(...row.map((v, h) => v + b.rhythm_you[d][h]))))
+    },
+    rhythmCell(d, h) {
+        const b = this.bd, a = b.rhythm_agents[d][h], y = b.rhythm_you[d][h], total = a + y
+        if (!total) return { background: 'rgb(255 255 255 / 0.03)' }
+        const alpha = 0.15 + 0.85 * total / this.rhythmMax
+        return { background: a >= y ? `rgb(139 124 248 / ${alpha})` : `rgb(96 165 250 / ${alpha})` }
+    },
+    rhythmTitle(d, h) {
+        const b = this.bd
+        return `${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][d]} ${String(h).padStart(2, '0')}:00 · agents ${this.fmtMinutes(b.rhythm_agents[d][h])} · you ${this.fmtMinutes(b.rhythm_you[d][h])}`
+    },
+    barRows(list) { return (list || []).slice(0, 8) },
+    barWidth(list, row) { const max = (list || [])[0]?.seconds || 1; return Math.max(1, row.seconds / max * 100) + '%' },
     osName(os) {
         const o = (os || '').toLowerCase()
         return o === 'macos' || o === 'darwin' ? 'macOS' : o === 'linux' ? 'Linux' : o === 'windows' ? 'Windows' : os || 'unknown OS'
@@ -297,6 +356,24 @@ const app = {
     fmtUSD: fmt.usd,
     fmtInt: fmt.int,
 
+    setTab(id) {
+        this.tab = id
+        this.ensureTab()
+        // charts on a hidden tab render at zero size; draw them again once their tab shows
+        setTimeout(() => {
+            if (this.act && (id === 'overview' || id === 'agents')) renderActivity(document.getElementById('activity-chart'), this.act, this.activityMode)
+            if (this.tk && id === 'tokens') renderTokenDays(document.getElementById('token-days-chart'), this.tk)
+        }, 0)
+    },
+
+    // load what the current tab shows, unless it is already loaded (or loading) for the current filters
+    ensureTab(force = false) {
+        for (const name of [...ALWAYS, ...(TAB_PANELS[this.tab] || [])]) {
+            const panel = this.panels[name]
+            if (force || (panel.url !== PANELS[name]() && !panel.loading) || panel.error) this.load(name)
+        }
+    },
+
     async load(name) {
         const panel = this.panels[name]
         const requestID = (panel.requestID || 0) + 1
@@ -311,7 +388,7 @@ const app = {
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const data = await res.json()
             if (panel.requestID !== requestID) return
-            if (['overview', 'activity', 'projects', 'cost', 'options'].includes(name) && data.token_source !== this.tokenSource) throw new Error('Accounting mode changed; reload the page')
+            if (['overview', 'activity', 'projects', 'cost', 'options', 'tokens', 'agents'].includes(name) && data.token_source !== this.tokenSource) throw new Error('Accounting mode changed; reload the page')
             panel.data = data
             window.dispatchEvent(new CustomEvent('dashboard:loaded', { detail: { name, data } }))
         } catch (e) {
@@ -325,7 +402,7 @@ const app = {
     },
 
     reloadAll() {
-        Object.keys(PANELS).forEach(name => this.load(name)) // in parallel, independently
+        this.ensureTab(true) // in parallel, independently; other tabs reload when shown
     },
 
     applyFilters() {
@@ -337,6 +414,11 @@ const app = {
     mounted() {
         window.addEventListener('dashboard:loaded', e => {
             if (e.detail.name === 'activity') setTimeout(() => renderActivity(document.getElementById('activity-chart'), e.detail.data, this.activityMode), 0)
+            if (e.detail.name === 'tokens' && this.tab === 'tokens') setTimeout(() => renderTokenDays(document.getElementById('token-days-chart'), e.detail.data), 0)
+        })
+        window.addEventListener('hashchange', () => {
+            const id = window.location.hash.slice(1)
+            if (id !== this.tab && TABS.some(t => t.id === id)) this.setTab(id)
         })
         this.reloadAll()
         setInterval(() => this.load('machines'), 60_000) // keep "live" and "last seen" current

@@ -39,7 +39,7 @@ Follows [PLAN.md](PLAN.md) (phases 0–7, merged) and [TOKEN_LEDGER_ROLLOUT.md](
 wakapi `ledger-v9` (4 commits) merged into `master`; mnemosyne token-source switch committed on `main`.
 Before any push: scan the new commits for credentials and transcript-derived data.
 
-## W1 — Reliability
+## W1 — Reliability — DONE (stage 1)
 
 1. **Observation job waits for DNS, no restart loop.** A failed observation writes a failed report that
    `gate.py` counts forever, so no `Restart=`. Instead `ExecStartPre` waits up to 10 min for the API host
@@ -59,7 +59,7 @@ Before any push: scan the new commits for credentials and transcript-derived dat
    wakatime-ai-sync.service` (serialised with the timer, never wakatime-cli directly); if still stale on
    the next check, `notify-send` + journal. Reads, never edits, wakatime-cli's files.
 
-## W2 — Pricing coverage (rates from the providers' pages, user-confirmed)
+## W2 — Pricing coverage — DONE (stage 1) (rates from the providers' pages, user-confirmed)
 
 1. `cache_write_5m` / `cache_write_1h` per Anthropic model, as listed per model (not multipliers).
    Identical rates on both Fable 5 rows (`fable`, `claude-fable` normalise to the same key; conflicting
@@ -67,7 +67,7 @@ Before any push: scan the new commits for credentials and transcript-derived dat
 2. `gpt-6.1-sol`: input 2.00, cached 0.10, output 10.00. `codex-auto-review` stays unpriced.
 3. Pi/OpenCode cache writes without a TTL split stay unpriced (documented). Update LEDGER_PRICING.md.
 
-## W3 — Recorded-plan attribution (needs contract amendment, user-approved)
+## W3 — Recorded-plan attribution — DONE (stage 1) (needs contract amendment, user-approved)
 
 1. `CountedEvents` selects `session_key`; session references of copied events are loaded too.
    `/usage/summary` and `/dashboard/ledger` JSON stay byte-identical (observer parity) — Go test.
@@ -80,7 +80,7 @@ Before any push: scan the new commits for credentials and transcript-derived dat
    "covered", not "pay per token" (template lines with that text rewritten). ACCOUNTING.md and
    LEDGER_PRICING.md amended.
 
-## W4 — Phase 8 tabs and issue #1 sections
+## W4 — Phase 8 tabs and issue #1 sections — DONE (stage 2)
 
 1. **Tabs.** `v-show` per tab section; panels fetch on first show (hash routing already exists).
 2. **Agent filter** `agent=` over agent groups (Claude Code, Codex, Pi, OpenCode): heartbeats via
@@ -91,9 +91,11 @@ Before any push: scan the new commits for credentials and transcript-derived dat
    editors. Endpoint `/api/dashboard/breakdown`.
 4. **Tokens & cost tab.** Daily stacked tokens by bucket; cache-hit ratio per day; cost by model (all rows)
    and by project; cost per hour of agent time; recorded-plan vs unknown.
-5. **Agents tab.** Per agent group: time, tokens, sessions, median session, prompts per session
-   (heartbeats with `ai_prompt_length > 0` per `ai_session`), tokens per AI line change (only when line
-   changes > 0), time by model version × reasoning effort. Endpoint `/api/dashboard/agents`.
+5. **Agents tab.** Per agent group: time, tokens, sessions, median session, tokens per AI line change
+   (only when line changes > 0), time by model version × reasoning effort (`ai_model_complexity`).
+   Endpoint `/api/dashboard/agents`. **Prompts per session: not built.** Wakapi does not persist
+   `ai_prompt_length` (no heartbeat column), and adding one would change the heartbeat table, which the
+   rules forbid. The Agents tab says so.
 6. **Projects tab.** Full sortable table. **Machines tab.** Cards + per-agent table + W1.3 health.
 7. Tests: Go unit tests per aggregation; `test_dashboard_ui.mjs` for tab switching; screenshots at
    1586 px and 390 px.
