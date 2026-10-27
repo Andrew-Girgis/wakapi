@@ -6,6 +6,7 @@ export const GROUP_COLORS = {
     'Pi': '#f59e0b',
     'OpenCode': '#f472b6',
     'Other': '#64748b',
+    'WakaTime fallback': '#64748b',
     'You': '#60a5fa',
 }
 

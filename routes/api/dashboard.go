@@ -18,10 +18,15 @@ type DashboardApiHandler struct {
 	config        *conf.Config
 	userSrvc      services.IUserService
 	dashboardSrvc *services.DashboardService
+	ledgerSrvc    *services.TokenUsageService
 }
 
-func NewDashboardApiHandler(userService services.IUserService, dashboardService *services.DashboardService) *DashboardApiHandler {
-	return &DashboardApiHandler{config: conf.Get(), userSrvc: userService, dashboardSrvc: dashboardService}
+func NewDashboardApiHandler(userService services.IUserService, dashboardService *services.DashboardService, ledger ...*services.TokenUsageService) *DashboardApiHandler {
+	h := &DashboardApiHandler{config: conf.Get(), userSrvc: userService, dashboardSrvc: dashboardService}
+	if len(ledger) > 0 {
+		h.ledgerSrvc = ledger[0]
+	}
+	return h
 }
 
 func (h *DashboardApiHandler) RegisterRoutes(router chi.Router) {
@@ -36,6 +41,11 @@ func (h *DashboardApiHandler) RegisterRoutes(router chi.Router) {
 	r.Get("/tokens", h.withRange(func(u *models.User, from, to time.Time, f services.DashboardFilters) (any, error) {
 		return h.dashboardSrvc.Tokens(u, from, to, f)
 	}))
+	if h.ledgerSrvc != nil {
+		r.Get("/ledger", h.withRange(func(u *models.User, from, to time.Time, f services.DashboardFilters) (any, error) {
+			return h.dashboardSrvc.LedgerSummary(u, from, to, f)
+		}))
+	}
 	r.Get("/cost", h.withRange(func(u *models.User, from, to time.Time, f services.DashboardFilters) (any, error) {
 		return h.dashboardSrvc.Cost(u, from, to, f)
 	}))
@@ -47,6 +57,9 @@ func (h *DashboardApiHandler) RegisterRoutes(router chi.Router) {
 	}))
 	r.Get("/timeline", h.GetTimeline)
 	r.Get("/machines", h.GetMachines)
+	r.Get("/options", func(w http.ResponseWriter, r *http.Request) {
+		h.respond(w, r)(h.dashboardSrvc.Options(middlewares.GetPrincipal(r)))
+	})
 
 	router.Mount("/dashboard", r)
 }
@@ -120,5 +133,5 @@ func (h *DashboardApiHandler) respond(w http.ResponseWriter, r *http.Request) fu
 }
 
 func filtersFrom(r *http.Request) services.DashboardFilters {
-	return services.DashboardFilters{Project: r.URL.Query().Get("project"), Machine: r.URL.Query().Get("machine")}
+	return services.DashboardFilters{Project: r.URL.Query().Get("project"), Machine: r.URL.Query().Get("machine"), Model: r.URL.Query().Get("model")}
 }

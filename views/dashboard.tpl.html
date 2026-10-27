@@ -76,8 +76,13 @@
                 <option value="">All machines</option>
                 <option v-for="m in machineOptions" :value="m" v-text="m"></option>
             </select>
+            <select class="d-select rounded-lg px-3 py-2 max-w-[14rem]" v-model="model" @change="applyFilters" aria-label="Model filter" title="Scopes tokens only; heartbeat time is unchanged">
+                <option value="">All models</option>
+                <option v-for="m in modelOptions" :value="m" v-text="m"></option>
+            </select>
         </div>
     </nav>
+    <div class="text-sm mt-3" :class="ledgerMode ? 'd-note' : 'd-muted'" v-text="accountingLabel"></div>
 
     <!-- Headline numbers -->
     <section id="overview" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 border-b d-line">
@@ -105,20 +110,23 @@
                 <div v-if="ov" class="text-xs d-muted mt-0.5" title="You and agents active at the same time; both numbers include it, the total counts it once">Overlapping time <span v-text="fmtDuration(ov.time.overlap_seconds)"></span></div>
             </div>
             <div v-if="!panels.overview.error" class="py-5 sm:pr-6 xl:px-6 xl:border-r d-line">
-                <div class="d-muted text-sm">Tokens</div>
-                <div v-if="ov" class="text-4xl font-semibold d-num mt-1"><span v-text="fmtTokens(ov.tokens.total)"></span></div>
+                <div class="d-muted text-sm" v-text="ledgerMode ? 'Accounted tokens · provisional' : 'Tokens · legacy heartbeats'"></div>
+                <div v-if="ov" class="text-4xl font-semibold d-num mt-1"><span :title="fmtInt(ov.tokens.total) + ' accounted tokens'" v-text="fmtTokens(ov.tokens.total)"></span></div>
                 <div v-else class="d-skeleton h-10 w-28 rounded mt-1"></div>
-                <div v-if="ov" class="text-sm d-muted mt-1 d-num" :title="fmtInt(ov.tokens.input) + ' new · ' + fmtInt(ov.tokens.cached_input) + ' cached · ' + fmtInt(ov.tokens.output) + ' output'"><span v-text="ov.tokens.cached_percent"></span>% cached · <span v-text="fmtTokens(ov.tokens.output)"></span> out</div>
+                <div v-if="ov" class="text-sm d-muted mt-1 d-num" :title="tokenDetail"><span v-text="ov.tokens.cached_percent"></span>% <span v-text="ledgerMode ? 'known cache reads' : 'cached'"></span> · <span v-text="fmtTokens(ov.tokens.output)"></span> out</div>
+                <div v-if="ov && ov.tokens.unknown_input" class="text-xs d-note mt-0.5"><span v-text="fmtTokens(ov.tokens.unknown_input)"></span> input with unknown cache split</div>
             </div>
             <div v-if="!panels.overview.error" class="py-5 sm:px-6">
-                <div class="d-muted text-sm">Estimated API value</div>
-                <div v-if="ov" class="text-4xl font-semibold d-num mt-1"><span v-text="fmtUSD(ov.cost.estimated_api_value)"></span></div>
+                <div class="d-muted text-sm" v-text="ledgerMode ? 'Priced-bucket API value · USD' : 'Legacy estimated API value · USD'"></div>
+                <div v-if="ov" class="text-4xl font-semibold d-num mt-1"><span v-text="ov.cost.available ? fmtUSD(ov.cost.estimated_api_value) : 'Unavailable'"></span></div>
                 <div v-else class="d-skeleton h-10 w-36 rounded mt-1"></div>
-                <div v-if="ov" class="text-sm d-muted mt-1 d-num">
+                <div v-if="ov && !ov.cost.available" class="text-sm d-muted mt-1" v-text="ov.cost.pricing_basis"></div>
+                <div v-if="ov && ov.cost.available && !ov.cost.billing_attribution_known" class="text-sm d-muted mt-1" :title="ov.cost.pricing_basis">Partial configured-rate value · not billed spend<br>Subscription/payment attribution unknown</div>
+                <div v-if="ov && ov.cost.available && ov.cost.billing_attribution_known" class="text-sm d-muted mt-1 d-num">
                     <span v-if="ov.cost.subscription_value > 0">Subscription usage <span v-text="fmtUSD(ov.cost.subscription_value)"></span> · not billed spend</span>
                     <span v-else>At API list prices · no subscription usage recorded</span>
                 </div>
-                <div v-if="ov && ov.cost.unpriced_tokens > 0" class="text-xs d-muted mt-0.5"><span v-text="fmtTokens(ov.cost.unpriced_tokens)"></span> tokens without a price</div>
+                <div v-if="ov && ov.cost.unpriced_tokens > 0" class="text-xs d-muted mt-0.5"><span v-text="fmtTokens(ov.cost.unpriced_tokens)"></span> tokens excluded from the estimate</div>
             </div>
             <div v-if="ov && ov.coverage_notes.length" class="col-span-full pb-4 -mt-1 text-xs d-note flex flex-col gap-0.5">
                 <span v-for="n in ov.coverage_notes">⚠ <span v-text="n"></span></span>
@@ -148,7 +156,7 @@
                     <button class="underline d-muted" @click="load('activity')">Retry</button>
                 </div>
             </div>
-            <div v-if="activityMode === 'tokens' && ov && ov.coverage_notes.length" class="text-xs d-note mt-2">⚠ Token bars inside the cached-token gap are too low.</div>
+            <div v-if="!ledgerMode && activityMode === 'tokens' && ov && ov.coverage_notes.length" class="text-xs d-note mt-2">⚠ Token bars inside the cached-token gap are too low.</div>
         </div>
 
         <div class="xl:border-l d-line xl:pl-6 flex flex-col">
@@ -156,6 +164,7 @@
             <div v-if="!act && !panels.activity.error" class="flex flex-col gap-5">
                 <div class="d-skeleton h-10 rounded"></div><div class="d-skeleton h-10 rounded"></div><div class="d-skeleton h-10 rounded"></div>
             </div>
+            <div v-if="act" class="text-xs d-muted mb-3" v-text="activityMode === 'tokens' ? 'Share of recorded tokens' : 'Share of heartbeat activity time'"></div>
             <div v-if="act" class="flex flex-col gap-4">
                 <div v-for="s in shareRows">
                     <div class="text-base" v-text="s.group"></div>
@@ -276,21 +285,26 @@
                         <th class="font-normal py-2 pr-4">Project</th>
                         <th class="font-normal py-2 pr-4" :title="pj.status_source === 'mnemosyne' ? 'From Mnemosyne' : 'From project labels: active, paused, done'">Status</th>
                         <th class="font-normal py-2 pr-4">Time</th>
-                        <th class="font-normal py-2 pr-4">Est. cost</th>
+                        <th class="font-normal py-2 pr-4">Tokens</th>
+                        <th class="font-normal py-2 pr-4">Est. API value · USD</th>
                         <th class="font-normal py-2 w-[18rem]" v-text="'Activity (' + pj.days.length + ' days)'"></th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr v-for="p in projectRows" class="border-b d-line">
-                        <td class="py-2 pr-4 font-medium max-w-[20rem] truncate" :title="p.name" v-text="p.name"></td>
+                        <td class="py-2 pr-4 font-medium max-w-[20rem] truncate" :title="p.name" v-text="p.name || '(unassigned)'"></td>
                         <td class="py-2 pr-4 whitespace-nowrap"><span class="inline-block w-2.5 h-2.5 rounded-full mr-2" :class="{ 'bg-green-500': p.status === 'active', 'bg-amber-400': p.status === 'paused', 'bg-gray-400': p.status === 'done', 'border border-gray-600': !p.status }"></span><span v-text="statusLabel(p.status)" :class="p.status ? '' : 'd-muted'"></span></td>
                         <td class="py-2 pr-4 d-num whitespace-nowrap" v-text="fmtDuration(p.seconds)"></td>
-                        <td class="py-2 pr-4 d-num whitespace-nowrap" :title="fmtTokens(p.tokens) + ' tokens'" v-text="fmtUSD(p.cost)"></td>
+                        <td class="py-2 pr-4 d-num whitespace-nowrap" :title="fmtInt(p.tokens) + ' accounted tokens'" v-text="fmtTokens(p.tokens)"></td>
+                        <td class="py-2 pr-4 d-num whitespace-nowrap" :title="fmtInt(p.unpriced_tokens) + ' tokens unpriced; not billed spend'">
+                            <span v-text="p.cost_available ? fmtUSD(p.cost) : 'Unavailable'"></span>
+                            <div v-if="p.unpriced_tokens" class="text-xs d-note"><span v-text="fmtTokens(p.unpriced_tokens)"></span> unpriced</div>
+                        </td>
                         <td class="py-2">
                             <svg width="280" height="28" viewBox="0 0 280 28" class="max-w-full" aria-hidden="true"><polyline :points="sparkline(p.daily_seconds)" fill="none" stroke="#8b7cf8" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>
                         </td>
                     </tr>
-                    <tr v-if="!pj.projects.length"><td colspan="5" class="py-6 d-muted text-sm">No project activity in this range.</td></tr>
+                    <tr v-if="!pj.projects.length"><td colspan="6" class="py-6 d-muted text-sm">No project activity in this range.</td></tr>
                 </tbody>
             </table>
         </div>
@@ -301,6 +315,19 @@
         <div class="flex flex-wrap items-baseline justify-between gap-2">
             <h2 class="text-2xl font-semibold">Tokens &amp; cost</h2>
             <span class="text-sm d-muted">Estimated at API list prices from the local price file</span>
+        </div>
+        <div class="mt-4 p-4 rounded-lg border d-line" aria-label="Provisional token ledger preview">
+            <div class="text-sm font-semibold" v-text="ledgerMode ? 'Ledger provenance · provisional' : 'Token ledger · comparison only'"></div>
+            <div v-if="panels.ledger.error" class="text-sm d-down mt-2">Ledger provenance unavailable; no fallback is substituted. <button class="underline" @click="load('ledger')">Retry</button></div>
+            <div v-else-if="!lg" class="d-skeleton h-12 mt-2 rounded"></div>
+            <div v-else class="mt-2">
+                <div class="text-2xl d-num font-semibold" :title="fmtInt(lg.total_tokens) + ' tokens'" v-text="fmtInt(lg.total_tokens)"></div>
+                <div class="text-sm d-muted d-num mt-1" v-text="fmtInt(lg.input_tokens) + ' new input · ' + fmtInt(lg.cache_read_tokens) + ' cache read · ' + fmtInt(lg.cache_write_tokens) + ' cache write · ' + fmtInt(lg.output_tokens) + ' output'"></div>
+                <div v-if="ledgerDelta !== null" class="text-sm d-muted d-num mt-1">Difference from legacy heartbeat accounting: <span v-text="(ledgerDelta >= 0 ? '+' : '−') + fmtInt(Math.abs(ledgerDelta))"></span></div>
+                <div v-if="lg.quarantined_events" class="text-xs d-note mt-1">⚠ <span v-text="fmtInt(lg.quarantined_tokens)"></span> additional tokens in <span v-text="fmtInt(lg.quarantined_events)"></span> unverified observations are held outside the preview total.</div>
+                <div v-if="lg.unknown_input_tokens" class="text-xs d-note mt-1">⚠ <span v-text="fmtInt(lg.unknown_input_tokens)"></span> input tokens have an unknown cache split; do not price them as new input.</div>
+                <div class="text-xs d-note mt-1">⚠ Accounted surviving records, not certified complete history. Unknown input remains unpriced. Background verification continues.</div>
+            </div>
         </div>
         <div v-if="panels.cost.error" class="py-8 flex items-center gap-3 text-sm">
             <span class="d-down">Couldn't load costs.</span>
@@ -313,9 +340,11 @@
                     <tr class="border-b d-line">
                         <th class="font-normal py-2 pr-4">Model</th>
                         <th class="font-normal py-2 pr-4">New input</th>
-                        <th class="font-normal py-2 pr-4">Cached</th>
+                        <th class="font-normal py-2 pr-4">Cache read</th>
+                        <th class="font-normal py-2 pr-4">Cache write</th>
+                        <th class="font-normal py-2 pr-4">Unknown input</th>
                         <th class="font-normal py-2 pr-4">Output</th>
-                        <th class="font-normal py-2 pr-4">Billing</th>
+                        <th class="font-normal py-2 pr-4">Payment attribution</th>
                         <th class="font-normal py-2 text-right">Est. cost</th>
                     </tr>
                 </thead>
@@ -324,13 +353,20 @@
                         <td class="py-2 pr-4" v-text="modelLabel(m)"></td>
                         <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.input)"></td>
                         <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.cached_input)"></td>
+                        <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.cache_write)"></td>
+                        <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.unknown_input)"></td>
                         <td class="py-2 pr-4" v-text="fmtTokens(m.tokens.output)"></td>
-                        <td class="py-2 pr-4 d-muted" v-text="m.subscription ? 'Subscription' : 'Pay per token'"></td>
-                        <td class="py-2 text-right" :class="m.priced ? '' : 'd-muted'" v-text="m.priced ? fmtUSD(m.cost) : 'no price'"></td>
+                        <td class="py-2 pr-4 d-muted" v-text="cs.cost.billing_attribution_known ? (m.subscription ? 'Subscription' : 'Pay per token') : 'Unknown'"></td>
+                        <td class="py-2 text-right" :class="m.priced ? '' : 'd-muted'">
+                            <span v-text="m.priced ? fmtUSD(m.cost) : 'no price'"></span>
+                            <div v-if="m.unpriced_tokens > 0" class="text-xs d-note"><span v-text="fmtTokens(m.unpriced_tokens)"></span> unpriced</div>
+                        </td>
                     </tr>
-                    <tr v-if="!costRows.length"><td colspan="6" class="py-6 d-muted text-sm">No token data in this range.</td></tr>
+                    <tr v-if="!costRows.length"><td colspan="8" class="py-6 d-muted text-sm">No recorded token data in this range.</td></tr>
                 </tbody>
             </table>
+            <button v-if="allCostRows.length > 8" class="text-sm underline d-muted mt-3" @click="modelsExpanded = !modelsExpanded" v-text="modelsExpanded ? 'Show fewer models' : 'Show all ' + allCostRows.length + ' models'"></button>
+            <div class="text-xs d-muted mt-3" v-text="cs.cost.pricing_basis"></div>
             <div v-if="cs.coverage_notes.length" class="text-xs d-note mt-2 flex flex-col gap-0.5">
                 <span v-for="n in cs.coverage_notes">⚠ <span v-text="n"></span></span>
             </div>
@@ -349,8 +385,9 @@
 
 <script>
     const dashboardTimeZone = {{ .TimeZone | json }}
+    const dashboardTokenSource = {{ .TokenSource | json }}
 </script>
-<script type="module" src="assets/js/dashboard/app.js?v={{ getCacheBuster }}"></script>
+<script type="module" src="assets/js/dashboard/app.js?v={{ getCacheBuster }}&amp;accounting=ledger-v2"></script>
 
 </body>
 

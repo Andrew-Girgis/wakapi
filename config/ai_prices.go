@@ -17,6 +17,9 @@ type AIPrice struct {
 	Input       float64  `yaml:"input"`
 	CachedInput float64  `yaml:"cached_input"`
 	Output      float64  `yaml:"output"`
+	// Optional explicit cache-write rates. Never infer a TTL or a write multiplier.
+	CacheWrite5m *float64 `yaml:"cache_write_5m"`
+	CacheWrite1h *float64 `yaml:"cache_write_1h"`
 }
 
 type aiPriceList struct {
