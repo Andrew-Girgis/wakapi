@@ -31,6 +31,65 @@
   <img src="static/assets/images/screenshot.webp" width="500px">
 </p>
 
+## About this fork
+
+This is [Andrew-Girgis/wakapi](https://github.com/Andrew-Girgis/wakapi), a fork of
+[muety/wakapi](https://github.com/muety/wakapi) that adds AI coding-agent accounting on top of
+upstream Wakapi. Everything below this section is upstream's README and still applies.
+
+**What the fork adds**
+
+- **`/dashboard`**: a new main page (the classic one moves to `/summary/classic`) with
+  headline numbers, weekly activity by agent, a day timeline, a machines panel with
+  silent-agent and stalled-sync warnings, projects, tokens and cost by model, and Agents and
+  Machines tabs. Its data is served as JSON under `/api/dashboard/*`.
+- **Token ledger**: an additive, idempotent usage store fed by a transcript collector
+  (`tools/token_ledger`, Python standard library only) that reads Claude Code, Codex and
+  other agent transcripts. Choose what the dashboard counts with
+  `WAKAPI_DASHBOARD_TOKEN_SOURCE=heartbeats` (default) or `ledger`.
+- **AI heartbeat fields**: `ai_cached_input_tokens` and other agent fields recorded correctly,
+  with verified partial pricing (equivalent API value, never presented as a bill).
+- The accounting rules are in [docs/dashboard/ACCOUNTING.md](docs/dashboard/ACCOUNTING.md),
+  pricing in [LEDGER_PRICING.md](docs/dashboard/LEDGER_PRICING.md), and the collector rollout
+  in [TOKEN_LEDGER_ROLLOUT.md](docs/dashboard/TOKEN_LEDGER_ROLLOUT.md).
+
+**Run it**
+
+Build and run it exactly like upstream (`docker build -t wakapi-fork .`, or `go build` and
+`./wakapi`); every upstream setting still works. The simplest full setup is
+[Mnemosyne](https://github.com/Andrew-Girgis/mnemosyne), whose Compose stack builds this fork
+straight from GitHub. Point your WakaTime clients at it as described under
+[How to use](#%EF%B8%8F-how-to-use).
+
+To count tokens from agent transcripts, run the collector on each machine (it queues only
+until you add `--send`):
+
+```sh
+python3 -m tools.token_ledger.collect --help
+python3 -m tools.token_ledger.install --help   # generates systemd/launchd timers
+```
+
+**Companion tools**
+
+- [omarchy-token-usage](https://github.com/Andrew-Girgis/omarchy-token-usage): an Omarchy bar
+  widget for this dashboard's API.
+- [Mnemosyne](https://github.com/Andrew-Girgis/mnemosyne): projects, tasks and ideas built on
+  the same heartbeats.
+
+**Ask an agent to set it up**
+
+> Set up the Wakapi fork from https://github.com/Andrew-Girgis/wakapi on this machine with
+> Docker, following its README's "About this fork" section. Keep sign-up closed after I create
+> my account, bind it to localhost, and tell me how to point `~/.wakatime.cfg` at it. Don't
+> print or store my API key anywhere except `~/.wakatime.cfg`.
+
+Issues and pull requests about the fork's additions are welcome
+[here](https://github.com/Andrew-Girgis/wakapi/issues); anything about upstream Wakapi belongs
+in [muety/wakapi](https://github.com/muety/wakapi). The fork keeps upstream's
+[MIT licence](LICENSE).
+
+---
+
 > [!IMPORTANT]
 > Due to limited time available on the maintainers' part, we temporarily do not accept pull requests. Please refrain from submitting contributions for the time being.
 
